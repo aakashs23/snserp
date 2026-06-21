@@ -216,3 +216,51 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# ===================================
+# Node.js / Next.js
+# ===================================
+
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Next.js
+.next/
+out/
+
+# Vercel
+.vercel
+
+# TypeScript
+*.tsbuildinfo
+next-env.d.ts
+
+# ===================================
+# Project Data
+# ===================================
+
+# Local data directories
+data/
+*.db
+
+# ChromaDB
+chroma_data/
+
+# ===================================
+# macOS
+# ===================================
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# ===================================
+# IDE
+# ===================================
+.idea/
+.vscode/
+*.swp
+*.swo
+*~

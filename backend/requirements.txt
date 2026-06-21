@@ -1,0 +1,39 @@
+# Web Framework
+fastapi
+uvicorn[standard]
+
+# Database
+sqlalchemy[asyncio]
+asyncpg
+alembic
+
+# Validation & Config
+pydantic
+pydantic-settings
+
+# Authentication
+python-jose[cryptography]
+passlib[bcrypt]
+
+# Supabase
+supabase
+
+# File Processing
+python-multipart
+reportlab
+pandas
+openpyxl
+
+# AI (shared with ai/ service)
+langchain
+langchain-community
+chromadb
+pymupdf
+
+# OCR
+paddleocr
+paddlepaddle
+
+# Utilities
+python-dotenv
+httpx

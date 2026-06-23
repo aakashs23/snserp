@@ -31,8 +31,8 @@ async def get_revenue_dashboard(
     # 2. Invoice Counts
     counts_query = select(
         func.count(Invoice.id).label('total'),
-        func.sum(func.cast(Invoice.status == 'paid', func.Integer())).label('paid'),
-        func.sum(func.cast(Invoice.status == 'sent', func.Integer())).label('pending'),
+        func.count(Invoice.id).filter(Invoice.status == 'paid').label('paid'),
+        func.count(Invoice.id).filter(Invoice.status == 'sent').label('pending'),
     ).where(func.extract('year', Invoice.invoice_date) == current_year)
     counts_result = await db.execute(counts_query)
     counts = counts_result.one()

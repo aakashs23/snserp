@@ -1,23 +1,19 @@
-import jwt
 from typing import Dict, Any
 
-from app.config.settings import settings
+from app.config.supabase import supabase
 
-def decode_supabase_jwt(token: str) -> Dict[str, Any]:
-    """
-    Decodes and validates a Supabase JWT.
-    Since Supabase uses HS256 by default with the JWT_SECRET, we decode it using PyJWT.
-    """
+
+def validate_supabase_jwt(token: str) -> Dict[str, Any]:
+    """Validate a Supabase access token via the Supabase Auth API."""
     try:
-        # Supabase audience is usually 'authenticated'
-        decoded = jwt.decode(
-            token,
-            settings.jwt_secret,
-            algorithms=["HS256"],
-            options={"verify_aud": False} # Sometimes audience varies, we disable strictly checking here for simplicity
-        )
-        return decoded
-    except jwt.ExpiredSignatureError:
-        raise ValueError("Token has expired")
-    except jwt.InvalidTokenError:
+        user_response = supabase.auth.get_user(jwt=token)
+    except Exception as e:
+        raise ValueError("Invalid token") from e
+
+    if not user_response or not getattr(user_response, "user", None):
         raise ValueError("Invalid token")
+
+    return {
+        "sub": user_response.user.id,
+        "email": user_response.user.email,
+    }

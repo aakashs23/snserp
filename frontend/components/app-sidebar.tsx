@@ -59,7 +59,6 @@ const navMain = [
     label: "Manage",
     items: [
       { title: "Customers", url: "/customers", icon: Users },
-      { title: "AI Assistant", url: "/ai", icon: Bot },
       { title: "Activity Logs", url: "/activity", icon: Activity },
       { title: "Settings", url: "/settings", icon: Settings },
     ],

@@ -6,7 +6,7 @@ from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload
 
 from app.database.session import get_db
-from app.auth.supabase_jwt import decode_supabase_jwt
+from app.auth.supabase_jwt import validate_supabase_jwt
 from app.models.users import User
 
 security = HTTPBearer()
@@ -23,7 +23,7 @@ async def get_current_user(
     """
     token = credentials.credentials
     try:
-        payload = decode_supabase_jwt(token)
+        payload = validate_supabase_jwt(token)
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -31,7 +31,7 @@ async def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    # Supabase user ID is in the 'sub' claim
+    # Supabase user ID is returned as the 'sub' field
     user_id_str = payload.get("sub")
     if not user_id_str:
         raise HTTPException(

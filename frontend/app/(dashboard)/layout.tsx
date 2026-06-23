@@ -1,6 +1,8 @@
 import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar"
 import { AppSidebar } from "@/components/app-sidebar"
 import { TopBar } from "@/components/top-bar"
+import { ChatProvider } from "@/components/providers/chat-provider"
+import { AIChatDrawer } from "@/components/ai-chat-drawer"
 
 export default function DashboardLayout({
   children,
@@ -8,14 +10,17 @@ export default function DashboardLayout({
   children: React.ReactNode
 }) {
   return (
-    <SidebarProvider>
-      <AppSidebar />
-      <SidebarInset>
-        <TopBar />
-        <main className="flex-1 overflow-auto p-6">
-          {children}
-        </main>
-      </SidebarInset>
-    </SidebarProvider>
+    <ChatProvider>
+      <SidebarProvider>
+        <AppSidebar />
+        <SidebarInset>
+          <TopBar />
+          <main className="flex-1 overflow-auto p-6 relative">
+            {children}
+          </main>
+        </SidebarInset>
+      </SidebarProvider>
+      <AIChatDrawer />
+    </ChatProvider>
   )
 }

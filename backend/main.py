@@ -10,16 +10,23 @@ from sqlalchemy import func, select
 from app.config.settings import settings
 from app.database.session import async_session_factory
 from app.models.users import Role
+from app.config.supabase import ensure_documents_bucket
 
 from app.api.health import router as health_router
 from app.api.auth import router as auth_router
 from app.api.customers import router as customers_router
 from app.api.invoices import router as invoices_router
+from app.api.documents import router as documents_router
+from app.api.analytics import router as analytics_router
+from app.api.chat import router as chat_router
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Application lifespan: seed default roles on startup."""
+    """Application lifespan: seed default roles and ensure storage buckets on startup."""
+    # Ensure Supabase storage buckets exist
+    ensure_documents_bucket()
+    
     async with async_session_factory() as session:
         count = await session.execute(select(func.count()).select_from(Role))
         if count.scalar_one() == 0:
@@ -57,3 +64,6 @@ app.include_router(health_router, tags=["Health"])
 app.include_router(auth_router, prefix="/api/v1/auth", tags=["Auth"])
 app.include_router(customers_router, prefix="/api/v1/customers", tags=["Customers"])
 app.include_router(invoices_router, prefix="/api/v1/invoices", tags=["Invoices"])
+app.include_router(documents_router, prefix="/api/v1/documents", tags=["Documents"])
+app.include_router(analytics_router, prefix="/api/v1/analytics", tags=["Analytics"])
+app.include_router(chat_router, prefix="/api/v1/chat", tags=["AI Chat"])

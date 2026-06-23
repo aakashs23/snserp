@@ -1,5 +1,6 @@
 """Application configuration using Pydantic Settings."""
 
+import os
 from pathlib import Path
 from typing import List
 
@@ -38,7 +39,7 @@ class Settings(BaseSettings):
     embedding_model: str = "nomic-embed-text"
 
     # ChromaDB
-    chroma_db_path: str = "./data/chromadb"
+    chroma_db_path: str = str(PROJECT_ROOT / "backend" / "data" / "chromadb")
 
     # Storage
     upload_directory: str = "./data/uploads"
@@ -60,3 +61,5 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+os.makedirs(settings.chroma_db_path, exist_ok=True)

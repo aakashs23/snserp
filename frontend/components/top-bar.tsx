@@ -1,12 +1,15 @@
 "use client"
 
-import { Bell } from "lucide-react"
+import { Bell, Sparkles } from "lucide-react"
 import { SidebarTrigger } from "@/components/ui/sidebar"
 import { Separator } from "@/components/ui/separator"
 import { Button } from "@/components/ui/button"
 import { ThemeToggle } from "@/components/theme-toggle"
+import { useChat } from "@/components/providers/chat-provider"
 
 export function TopBar() {
+  const { toggleChat } = useChat()
+
   return (
     <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center gap-2 border-b bg-background/80 backdrop-blur-sm px-4">
       <SidebarTrigger className="-ml-1" />
@@ -17,6 +20,9 @@ export function TopBar() {
 
       {/* Right side actions */}
       <div className="flex items-center gap-1">
+        <Button variant="ghost" size="icon" className="h-9 w-9 relative" onClick={toggleChat} title="AI Assistant">
+          <Sparkles className="h-4.5 w-4.5 text-primary" />
+        </Button>
         <Button variant="ghost" size="icon" className="h-9 w-9 relative">
           <Bell className="h-4 w-4" />
           <span className="absolute top-1.5 right-1.5 h-2 w-2 rounded-full bg-accent" />

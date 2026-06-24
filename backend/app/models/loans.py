@@ -33,6 +33,9 @@ class Loan(Base, UUIDPrimaryKeyMixin, TimestampMixin):
     emi_amount: Mapped[float | None] = mapped_column(
         Numeric(15, 2), nullable=True, comment="Monthly EMI amount"
     )
+    payment_frequency: Mapped[str] = mapped_column(
+        String(20), default="monthly", nullable=False, comment="e.g. monthly, quarterly"
+    )
     disbursement_date: Mapped[date | None] = mapped_column(
         Date, nullable=True
     )

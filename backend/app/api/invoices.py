@@ -182,3 +182,118 @@ async def get_invoice_pdf(
         raise HTTPException(status_code=500, detail="Could not generate signed URL")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+import pandas as pd
+import math
+from fastapi import File, UploadFile
+
+@router.post("/parse-excel")
+async def parse_excel(
+    file: UploadFile = File(...),
+    _current_user: User = Depends(get_current_user),
+) -> dict:
+    """Parse an uploaded Excel file for invoice generation with flexible 2D template parsing."""
+    if not file.filename.endswith(".xlsx"):
+        raise HTTPException(status_code=400, detail="This file is not a valid Excel document.")
+    
+    try:
+        # Read without headers to parse free-form grids
+        df = pd.read_excel(file.file, header=None)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Could not read the Excel file. It may be corrupted or unsupported.")
+    
+    if df.empty:
+        raise HTTPException(status_code=400, detail="The uploaded Excel file contains no invoice data.")
+        
+    grid = df.values.tolist()
+    extracted = {}
+
+    def find_cell_with_text(text_variations):
+        for r_idx, row in enumerate(grid):
+            for c_idx, cell in enumerate(row):
+                if isinstance(cell, str):
+                    clean_cell = str(cell).strip().lower()
+                    for t in text_variations:
+                        if t in clean_cell:
+                            return r_idx, c_idx
+        return None, None
+
+    def get_numbers_in_row(r_idx, start_c_idx):
+        nums = []
+        if r_idx is not None and r_idx < len(grid):
+            for c_idx in range(start_c_idx + 1, len(grid[r_idx])):
+                val = grid[r_idx][c_idx]
+                if isinstance(val, (int, float)) and not math.isnan(val):
+                    nums.append(val)
+        return nums
+
+    # 1. Customer Name
+    # Usually directly above "HT SC No." in the template
+    r_idx, c_idx = find_cell_with_text(["ht sc no", "ht sc number"])
+    if r_idx is not None and r_idx > 0:
+        val = grid[r_idx - 1][c_idx]
+        if isinstance(val, str) and str(val).strip():
+            extracted["Customer Name"] = str(val).strip()
+
+    # Fallback for tabular: look for "Customer Name" in top rows
+    if "Customer Name" not in extracted:
+        r_idx, c_idx = find_cell_with_text(["customer name", "client name"])
+        if r_idx is not None and r_idx + 1 < len(grid):
+            val = grid[r_idx + 1][c_idx]
+            if isinstance(val, str) and str(val).strip():
+                extracted["Customer Name"] = str(val).strip()
+
+    # 2. Quantity Units
+    r_idx, c_idx = find_cell_with_text(["solar alloted", "alloted units", "quantity units"])
+    if r_idx is not None:
+        nums = get_numbers_in_row(r_idx, c_idx)
+        if nums:
+            extracted["Quantity Units"] = nums[0]
+
+    # 3. Per Unit Rate
+    # In the template, it's the first number next to "Invoice Amount"
+    r_idx, c_idx = find_cell_with_text(["invoice amount", "amount"])
+    if r_idx is not None:
+        nums = get_numbers_in_row(r_idx, c_idx)
+        if len(nums) > 0:
+            extracted["Per Unit Rate"] = nums[0]
+
+    # Fallback: standard "per unit rate"
+    if "Per Unit Rate" not in extracted:
+        r_idx, c_idx = find_cell_with_text(["per unit rate", "rate"])
+        if r_idx is not None:
+            nums = get_numbers_in_row(r_idx, c_idx)
+            if nums:
+                extracted["Per Unit Rate"] = nums[0]
+            elif r_idx + 1 < len(grid):
+                val = grid[r_idx + 1][c_idx]
+                if isinstance(val, (int, float)) and not math.isnan(val):
+                    extracted["Per Unit Rate"] = val
+
+    # 4. Open Access Charges
+    # Template has this at the bottom with a number next to it
+    for r_idx, row in enumerate(grid):
+        for c_idx, cell in enumerate(row):
+            if isinstance(cell, str) and "open access" in str(cell).strip().lower():
+                nums = get_numbers_in_row(r_idx, c_idx)
+                if nums:
+                    extracted["Open Access Charges"] = nums[-1]
+
+    # 5. Round Off
+    r_idx, c_idx = find_cell_with_text(["round off", "round"])
+    if r_idx is not None:
+        nums = get_numbers_in_row(r_idx, c_idx)
+        if nums:
+            extracted["Round Off"] = nums[0]
+
+    found_fields = list(extracted.keys())
+    missing_fields = [f for f in ["Customer Name", "Quantity Units", "Per Unit Rate", "Open Access Charges", "Round Off"] if f not in found_fields]
+
+    if not found_fields:
+        raise HTTPException(status_code=400, detail="Spreadsheet contains no recognizable invoice fields. Ensure you are using the correct template.")
+
+    return {
+        "data": extracted,
+        "found_fields": found_fields,
+        "missing_fields": missing_fields
+    }

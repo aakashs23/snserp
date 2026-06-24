@@ -23,6 +23,7 @@ class Customer(UUIDPrimaryKeyMixin, Base):
         Text, nullable=True
     )  # encrypted at app level
     ifsc_code: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    ht_sc_number: Mapped[str | None] = mapped_column(String(50), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

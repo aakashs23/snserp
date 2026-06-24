@@ -53,6 +53,7 @@ const navMain = [
       { title: "Invoice Register", url: "/invoices/register", icon: ClipboardList },
       { title: "Revenue Dashboard", url: "/revenue", icon: BarChart3 },
       { title: "Monthly Calculator", url: "/calculator", icon: Calculator },
+      { title: "Loans", url: "/loans", icon: ClipboardList },
     ],
   },
   {

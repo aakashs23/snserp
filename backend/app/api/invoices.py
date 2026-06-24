@@ -14,8 +14,11 @@ from app.middleware.auth import get_current_user
 from app.middleware.rbac import RequireRole
 from app.models.invoices import Invoice
 from app.models.users import User
+from app.models.customers import Customer
 from app.repositories.base import BaseRepository
 from app.schemas.invoices import InvoiceCreate, InvoiceResponse, InvoiceUpdate
+from app.services.pdf_generator import generate_invoice_pdf
+from app.config.supabase import supabase
 
 router = APIRouter()
 
@@ -78,8 +81,42 @@ async def create_invoice(
     repo = BaseRepository(Invoice, db)
     data = body.model_dump()
     data["created_by"] = current_user.id
+    
+    # 1. Save to DB first to get the ID
     invoice = await repo.create(data)
-    return invoice
+    
+    # 2. Fetch Customer for PDF
+    customer_res = await db.execute(select(Customer).where(Customer.id == invoice.customer_id))
+    customer = customer_res.scalar_one_or_none()
+    
+    if customer:
+        # 3. Generate PDF
+        pdf_bytes = generate_invoice_pdf(invoice, customer)
+        
+        # 4. Upload to Supabase
+        file_path = f"{current_user.id}/{invoice.id}.pdf"
+        try:
+            # Ensure bucket exists (ignore error if it does)
+            try:
+                supabase.storage.create_bucket("invoice-pdfs", options={"public": False})
+            except Exception:
+                pass
+                
+            supabase.storage.from_("invoice-pdfs").upload(
+                file_path, 
+                pdf_bytes, 
+                file_options={"content-type": "application/pdf", "upsert": "true"}
+            )
+            
+            # 5. Update invoice with path
+            await repo.update(invoice, {"pdf_storage_path": file_path})
+        except Exception as e:
+            print(f"Failed to upload PDF: {e}")
+            
+    # Refresh to get relations properly
+    query = select(Invoice).options(selectinload(Invoice.customer)).where(Invoice.id == invoice.id)
+    result = await db.execute(query)
+    return result.scalar_one()
 
 
 @router.put("/{invoice_id}", response_model=InvoiceResponse)
@@ -118,3 +155,30 @@ async def delete_invoice(
             detail="Invoice not found",
         )
     return {"deleted": True}
+
+
+@router.get("/{invoice_id}/pdf")
+async def get_invoice_pdf(
+    invoice_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    _current_user: User = Depends(get_current_user),
+) -> dict:
+    """Get a signed URL for the invoice PDF."""
+    repo = BaseRepository(Invoice, db)
+    invoice = await repo.get(invoice_id)
+    if not invoice or not invoice.pdf_storage_path:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Invoice PDF not found",
+        )
+    
+    try:
+        # Create a signed URL valid for 1 hour (3600 seconds)
+        response = supabase.storage.from_("invoice-pdfs").create_signed_url(
+            invoice.pdf_storage_path, 3600
+        )
+        if "signedURL" in response:
+            return {"url": response["signedURL"]}
+        raise HTTPException(status_code=500, detail="Could not generate signed URL")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

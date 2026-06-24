@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from "react"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
 import { createClient } from "@/utils/supabase/client"
-import { Save, Eye, ArrowLeft } from "lucide-react"
+import { Save, ArrowLeft } from "lucide-react"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -23,6 +23,60 @@ interface Customer {
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
 
+const buildMonthStartDate = (year: number, month: number) => {
+  if (!Number.isInteger(year) || !Number.isInteger(month) || month < 1 || month > 12) {
+    return null
+  }
+
+  return `${year}-${String(month).padStart(2, "0")}-01`
+}
+
+const normalizeMonthOfSupply = (value: string, invoiceDate: string) => {
+  const raw = value.trim()
+  if (!raw) return null
+
+  if (/^\d{4}-\d{2}$/.test(raw)) {
+    return `${raw}-01`
+  }
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    return `${raw.slice(0, 7)}-01`
+  }
+
+  if (/^\d{1,2}[/-]\d{4}$/.test(raw)) {
+    const [month, year] = raw.split(/[/-]/)
+    return buildMonthStartDate(Number(year), Number(month))
+  }
+
+  if (/^\d{1,2}[/-]\d{1,2}[/-]\d{4}$/.test(raw)) {
+    const [month, , year] = raw.split(/[/-]/)
+    return buildMonthStartDate(Number(year), Number(month))
+  }
+
+  const invoiceYear = Number(invoiceDate.slice(0, 4))
+
+  if (/^\d{1,2}$/.test(raw)) {
+    return buildMonthStartDate(invoiceYear, Number(raw))
+  }
+
+  if (/^\d{1,2}[/-]\d{1,2}$/.test(raw)) {
+    const [month] = raw.split(/[/-]/)
+    return buildMonthStartDate(invoiceYear, Number(month))
+  }
+
+  const parsedWithYear = new Date(`${raw} 1`)
+  if (!Number.isNaN(parsedWithYear.getTime())) {
+    return buildMonthStartDate(parsedWithYear.getFullYear(), parsedWithYear.getMonth() + 1)
+  }
+
+  const parsedWithInvoiceYear = new Date(`${raw} 1, ${invoiceYear}`)
+  if (!Number.isNaN(parsedWithInvoiceYear.getTime())) {
+    return buildMonthStartDate(invoiceYear, parsedWithInvoiceYear.getMonth() + 1)
+  }
+
+  return null
+}
+
 export default function InvoiceGeneratorPage() {
   const router = useRouter()
   const [customers, setCustomers] = useState<Customer[]>([])
@@ -33,18 +87,21 @@ export default function InvoiceGeneratorPage() {
   const [customerId, setCustomerId] = useState("")
   const [invoiceDate, setInvoiceDate] = useState(new Date().toISOString().split("T")[0])
   const [monthOfSupply, setMonthOfSupply] = useState("")
-  const [paymentMode, setPaymentMode] = useState("")
+  const [paymentMode, setPaymentMode] = useState("cheque")
+  
+  const [description, setDescription] = useState("Solar Power Allotted")
   const [units, setUnits] = useState("")
   const [rate, setRate] = useState("")
   const [openAccessCharges, setOpenAccessCharges] = useState("0")
+  const [roundOff, setRoundOff] = useState("0")
   const [notes, setNotes] = useState("")
 
   // Calculated values
-  const grossAmount = units && rate ? parseFloat(units) * parseFloat(rate) : 0
-  const gstAmount = grossAmount * 0.18
-  const tdsAmount = grossAmount * 0.01
+  const amount = (parseFloat(units) || 0) * (parseFloat(rate) || 0)
+  const roundOffVal = parseFloat(roundOff) || 0
+  const total = amount + roundOffVal
   const oac = parseFloat(openAccessCharges) || 0
-  const netAmount = grossAmount + gstAmount - tdsAmount - oac
+  const netAmount = total - oac
 
   const getAuthHeaders = useCallback(async () => {
     const supabase = createClient()
@@ -75,18 +132,27 @@ export default function InvoiceGeneratorPage() {
       return
     }
 
+    const formattedMonthOfSupply = normalizeMonthOfSupply(monthOfSupply, invoiceDate)
+    if (monthOfSupply && !formattedMonthOfSupply) {
+      toast.error("Month of Supply must be a valid month, like 2026-06 or June 2026")
+      return
+    }
+
     setLoading(true)
     try {
       const headers = await getAuthHeaders()
+
       const body = {
         invoice_number: invoiceNumber,
         customer_id: customerId,
         invoice_date: invoiceDate,
-        month_of_supply: monthOfSupply || null,
+        month_of_supply: formattedMonthOfSupply,
         payment_mode: paymentMode || null,
+        description: description || null,
         units: units ? parseFloat(units) : null,
         rate: rate ? parseFloat(rate) : null,
-        gross_amount: grossAmount || null,
+        gross_amount: amount || null,
+        round_off: roundOffVal,
         open_access_charges: oac,
         net_amount: netAmount || null,
         notes: notes || null,
@@ -104,7 +170,18 @@ export default function InvoiceGeneratorPage() {
         router.push("/invoices/register")
       } else {
         const err = await res.json()
-        toast.error(err.detail || "Failed to create invoice")
+        console.error(err)
+        let errorMessage = "Failed to create invoice. Please check the inputs."
+        if (err.detail) {
+          if (Array.isArray(err.detail)) {
+            errorMessage = err.detail
+              .map((detail: { loc?: string[]; msg?: string }) => `${detail.loc?.join(".")} - ${detail.msg}`)
+              .join(", ")
+          } else if (typeof err.detail === "string") {
+            errorMessage = err.detail
+          }
+        }
+        toast.error(errorMessage)
       }
     } catch {
       toast.error("Network error")
@@ -114,7 +191,12 @@ export default function InvoiceGeneratorPage() {
   }
 
   const formatCurrency = (n: number) =>
-    new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR" }).format(n)
+    new Intl.NumberFormat("en-IN", { 
+      style: "currency", 
+      currency: "INR",
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2
+    }).format(n)
 
   return (
     <div className="space-y-6">
@@ -127,7 +209,7 @@ export default function InvoiceGeneratorPage() {
             Invoice Generator
           </h1>
           <p className="text-muted-foreground mt-1">
-            Create a new invoice. GST (18%) and TDS (1%) are calculated automatically.
+            Create a new invoice. Values will strictly match the company PDF template.
           </p>
         </div>
       </div>
@@ -167,7 +249,13 @@ export default function InvoiceGeneratorPage() {
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="month_of_supply">Month of Supply</Label>
-                    <Input id="month_of_supply" type="month" value={monthOfSupply} onChange={(e) => setMonthOfSupply(e.target.value)} />
+                    <Input
+                      id="month_of_supply"
+                      type="text"
+                      value={monthOfSupply}
+                      onChange={(e) => setMonthOfSupply(e.target.value)}
+                      placeholder="June 2026 or 2026-06"
+                    />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="payment_mode">Payment Mode</Label>
@@ -176,8 +264,8 @@ export default function InvoiceGeneratorPage() {
                         <SelectValue placeholder="Select mode" />
                       </SelectTrigger>
                       <SelectContent>
+                        <SelectItem value="cheque">CHEQUE/RTGS</SelectItem>
                         <SelectItem value="bank_transfer">Bank Transfer</SelectItem>
-                        <SelectItem value="cheque">Cheque</SelectItem>
                         <SelectItem value="cash">Cash</SelectItem>
                         <SelectItem value="upi">UPI</SelectItem>
                       </SelectContent>
@@ -189,26 +277,36 @@ export default function InvoiceGeneratorPage() {
 
             <Card>
               <CardHeader>
-                <CardTitle>Billing</CardTitle>
+                <CardTitle>Line Items & Billing</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="grid grid-cols-3 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="description">Item Description</Label>
+                  <Input id="description" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Solar Power Allotted 01.05.2026 to 31.05.2026" />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
-                    <Label htmlFor="units">Units</Label>
-                    <Input id="units" type="number" step="0.001" value={units} onChange={(e) => setUnits(e.target.value)} placeholder="0.000" />
+                    <Label htmlFor="units">Quantity (Units)</Label>
+                    <Input id="units" type="number" step="0.001" min="0" value={units} onChange={(e) => setUnits(e.target.value)} placeholder="0.000" />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="rate">Rate (₹/unit)</Label>
-                    <Input id="rate" type="number" step="0.0001" value={rate} onChange={(e) => setRate(e.target.value)} placeholder="0.0000" />
+                    <Label htmlFor="rate">Per Unit Rate (₹)</Label>
+                    <Input id="rate" type="number" step="0.0001" min="0" value={rate} onChange={(e) => setRate(e.target.value)} placeholder="0.0000" />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="round_off">Round Off / On (₹)</Label>
+                    <Input id="round_off" type="number" step="0.01" value={roundOff} onChange={(e) => setRoundOff(e.target.value)} placeholder="0.00" />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="open_access">Open Access Charges (₹)</Label>
-                    <Input id="open_access" type="number" step="0.01" value={openAccessCharges} onChange={(e) => setOpenAccessCharges(e.target.value)} />
+                    <Input id="open_access" type="number" step="0.01" min="0" value={openAccessCharges} onChange={(e) => setOpenAccessCharges(e.target.value)} placeholder="0.00" />
                   </div>
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="notes">Notes</Label>
-                  <Textarea id="notes" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Optional notes..." rows={3} />
+                <div className="space-y-2 pt-2">
+                  <Label htmlFor="notes">Internal Notes</Label>
+                  <Textarea id="notes" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Optional notes... (Not printed on PDF)" rows={2} />
                 </div>
               </CardContent>
             </Card>
@@ -216,30 +314,30 @@ export default function InvoiceGeneratorPage() {
 
           {/* Right: Live Preview */}
           <div className="space-y-6">
-            <Card className="sticky top-20">
+            <Card className="sticky top-20 bg-muted/20">
               <CardHeader>
                 <CardTitle>Amount Preview</CardTitle>
                 <CardDescription>Live calculation</CardDescription>
               </CardHeader>
               <CardContent className="space-y-3">
                 <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Gross Amount</span>
-                  <span className="font-medium">{formatCurrency(grossAmount)}</span>
+                  <span className="text-muted-foreground">Amount (Units × Rate)</span>
+                  <span className="font-medium text-emerald-600">{formatCurrency(amount)}</span>
                 </div>
                 <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">GST (18%)</span>
-                  <span className="text-accent font-medium">+ {formatCurrency(gstAmount)}</span>
+                  <span className="text-muted-foreground">Round / Off</span>
+                  <span className="font-medium">{(roundOffVal > 0 ? "+" : "") + formatCurrency(roundOffVal)}</span>
+                </div>
+                <div className="flex justify-between text-sm pt-2 border-t">
+                  <span className="font-medium">Total</span>
+                  <span className="font-bold">{formatCurrency(total)}</span>
                 </div>
                 <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">TDS (1%)</span>
-                  <span className="text-destructive font-medium">- {formatCurrency(tdsAmount)}</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Open Access</span>
+                  <span className="text-muted-foreground">Open Access Charges</span>
                   <span className="text-destructive font-medium">- {formatCurrency(oac)}</span>
                 </div>
-                <Separator />
-                <div className="flex justify-between text-lg font-bold">
+                <Separator className="my-2" />
+                <div className="flex justify-between text-lg font-bold items-center text-primary">
                   <span>Net Amount</span>
                   <span>{formatCurrency(netAmount)}</span>
                 </div>
@@ -249,7 +347,7 @@ export default function InvoiceGeneratorPage() {
             <div className="flex flex-col gap-3">
               <Button type="submit" className="w-full" disabled={loading}>
                 <Save className="h-4 w-4 mr-2" />
-                {loading ? "Saving..." : "Save Invoice"}
+                {loading ? "Saving & Generating PDF..." : "Save Invoice"}
               </Button>
             </div>
           </div>

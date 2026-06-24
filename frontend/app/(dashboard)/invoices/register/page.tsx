@@ -1,13 +1,12 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
-import { FilePlus, Search, Download, Eye } from "lucide-react"
+import { FilePlus, Eye, Download } from "lucide-react"
 import Link from "next/link"
 import { toast } from "sonner"
 import { createClient } from "@/utils/supabase/client"
 
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import {
@@ -35,11 +34,10 @@ interface Invoice {
   month_of_supply: string | null
   gross_amount: number | null
   net_amount: number | null
-  gst_amount: number | null
-  tds_amount: number | null
   status: string | null
   payment_date: string | null
   created_at: string
+  pdf_storage_path: string | null
 }
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
@@ -94,9 +92,28 @@ export default function InvoiceRegisterPage() {
     fetchInvoices()
   }, [fetchInvoices])
 
+  const handleViewPDF = async (invoiceId: string) => {
+    try {
+      const headers = await getAuthHeaders()
+      const res = await fetch(`${API_URL}/api/v1/invoices/${invoiceId}/pdf`, { headers })
+      if (res.ok) {
+        const data = await res.json()
+        if (data.url) {
+          window.open(data.url, "_blank")
+        } else {
+          toast.error("Could not load PDF URL")
+        }
+      } else {
+        toast.error("PDF not found or not yet generated.")
+      }
+    } catch {
+      toast.error("Network error while trying to view PDF.")
+    }
+  }
+
   const formatCurrency = (n: number | null) =>
     n != null
-      ? new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR" }).format(n)
+      ? new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", minimumFractionDigits: 2 }).format(n)
       : "—"
 
   const formatDate = (d: string | null) =>
@@ -110,7 +127,7 @@ export default function InvoiceRegisterPage() {
             Invoice Register
           </h1>
           <p className="text-muted-foreground mt-1">
-            View and manage all invoices.
+            View and manage all generated invoices.
           </p>
         </div>
         <Button asChild>
@@ -147,26 +164,24 @@ export default function InvoiceRegisterPage() {
                 <TableHead>Invoice #</TableHead>
                 <TableHead>Date</TableHead>
                 <TableHead>Month</TableHead>
-                <TableHead className="text-right">Gross</TableHead>
-                <TableHead className="text-right">GST (18%)</TableHead>
-                <TableHead className="text-right">TDS (1%)</TableHead>
-                <TableHead className="text-right">Net Amount</TableHead>
+                <TableHead className="text-right">Amount</TableHead>
+                <TableHead className="text-right">Net Total</TableHead>
                 <TableHead>Status</TableHead>
-                <TableHead>Payment Date</TableHead>
+                <TableHead>Action</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {loading ? (
                 Array.from({ length: 5 }).map((_, i) => (
                   <TableRow key={i}>
-                    {Array.from({ length: 9 }).map((_, j) => (
+                    {Array.from({ length: 7 }).map((_, j) => (
                       <TableCell key={j}><Skeleton className="h-4 w-20" /></TableCell>
                     ))}
                   </TableRow>
                 ))
               ) : invoices.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={9} className="text-center py-12 text-muted-foreground">
+                  <TableCell colSpan={7} className="text-center py-12 text-muted-foreground">
                     No invoices found. Click &ldquo;New Invoice&rdquo; to create one.
                   </TableCell>
                 </TableRow>
@@ -177,15 +192,22 @@ export default function InvoiceRegisterPage() {
                     <TableCell>{formatDate(inv.invoice_date)}</TableCell>
                     <TableCell>{inv.month_of_supply ? formatDate(inv.month_of_supply) : "—"}</TableCell>
                     <TableCell className="text-right font-mono">{formatCurrency(inv.gross_amount)}</TableCell>
-                    <TableCell className="text-right font-mono text-accent">{formatCurrency(inv.gst_amount)}</TableCell>
-                    <TableCell className="text-right font-mono text-destructive">{formatCurrency(inv.tds_amount)}</TableCell>
-                    <TableCell className="text-right font-mono font-semibold">{formatCurrency(inv.net_amount)}</TableCell>
+                    <TableCell className="text-right font-mono font-semibold text-primary">{formatCurrency(inv.net_amount)}</TableCell>
                     <TableCell>
                       <Badge variant={statusVariant[inv.status || "draft"] || "secondary"}>
                         {statusLabel[inv.status || "draft"] || inv.status}
                       </Badge>
                     </TableCell>
-                    <TableCell>{formatDate(inv.payment_date)}</TableCell>
+                    <TableCell>
+                      {inv.pdf_storage_path ? (
+                        <Button variant="ghost" size="sm" onClick={() => handleViewPDF(inv.id)}>
+                          <Eye className="h-4 w-4 mr-2" />
+                          View PDF
+                        </Button>
+                      ) : (
+                        <span className="text-muted-foreground text-sm">No PDF</span>
+                      )}
+                    </TableCell>
                   </TableRow>
                 ))
               )}

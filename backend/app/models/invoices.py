@@ -39,6 +39,8 @@ class Invoice(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     net_amount: Mapped[float | None] = mapped_column(Numeric(15, 2), nullable=True)
 
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    round_off: Mapped[float | None] = mapped_column(Numeric(15, 2), server_default="0", nullable=True)
     pdf_storage_path: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     # status: draft | sent | paid | overdue | cancelled

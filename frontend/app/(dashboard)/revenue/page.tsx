@@ -80,7 +80,7 @@ export default function RevenueDashboardPage() {
 
   if (loading) {
     return (
-      <RoleGuard allowedRoles={["admin", "accountant", "employee"]}>
+      <RoleGuard allowedRoles={["admin", "employee"]}>
         <div className="space-y-6">
           <h1 className="text-3xl font-bold tracking-tight">Revenue Dashboard</h1>
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
@@ -97,14 +97,14 @@ export default function RevenueDashboardPage() {
 
   if (!data) {
     return (
-      <RoleGuard allowedRoles={["admin", "accountant", "employee"]}>
+      <RoleGuard allowedRoles={["admin", "employee"]}>
         <div>Error loading data.</div>
       </RoleGuard>
     )
   }
 
   return (
-    <RoleGuard allowedRoles={["admin", "accountant", "employee"]}>
+    <RoleGuard allowedRoles={["admin", "employee"]}>
       <div className="space-y-6">
         <div>
           <h1 className="text-3xl font-bold tracking-tight font-[family-name:var(--font-heading)]">

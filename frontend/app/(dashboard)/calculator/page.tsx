@@ -124,7 +124,7 @@ export default function CalculatorPage() {
     new Intl.NumberFormat("en-IN", { maximumFractionDigits: 2 }).format(n)
 
   return (
-    <RoleGuard allowedRoles={["admin", "accountant", "employee"]}>
+    <RoleGuard allowedRoles={["admin", "employee"]}>
       <div className="space-y-6 max-w-6xl mx-auto">
         <div>
           <h1 className="text-3xl font-bold tracking-tight font-[family-name:var(--font-heading)]">

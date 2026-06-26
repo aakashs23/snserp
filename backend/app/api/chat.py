@@ -90,8 +90,19 @@ Standalone question:"""
     rewritten = llm.invoke(prompt).strip()
     return rewritten
 
-async def _hybrid_search(db: AsyncSession, user_id: uuid.UUID, query: str):
-    """Combine ChromaDB semantic search with Postgres Metadata search."""
+async def _hybrid_search(db: AsyncSession, current_user: User, query: str):
+    """Combine ChromaDB semantic search with Postgres Metadata search, filtered by permissions."""
+    # 0. Get allowed document IDs
+    doc_query = select(Document.id).where(Document.is_deleted == False)
+    if current_user.role.name in ["viewer", "accountant"]:
+        doc_query = doc_query.where(Document.status == "approved").where(Document.shared_with.any(User.id == current_user.id))
+    
+    permitted_docs_res = await db.execute(doc_query)
+    permitted_doc_ids = [str(doc_id) for doc_id in permitted_docs_res.scalars().all()]
+    
+    if not permitted_doc_ids:
+        return {"documents": [], "metadatas": []}
+
     # 1. Postgres search based on query tokens
     query_tokens = [t for t in query.split() if len(t) > 3]
     db_matched_ids = []
@@ -113,8 +124,7 @@ async def _hybrid_search(db: AsyncSession, user_id: uuid.UUID, query: str):
             .outerjoin(DocumentMetadata, DocumentMetadata.document_id == Document.id)
             .outerjoin(DocumentAI, DocumentAI.document_id == Document.id)
             .where(
-                Document.uploaded_by == user_id,
-                Document.is_deleted == False,
+                Document.id.in_([uuid.UUID(id_str) for id_str in permitted_doc_ids]),
                 or_(*filters)
             )
             .limit(10)
@@ -129,6 +139,7 @@ async def _hybrid_search(db: AsyncSession, user_id: uuid.UUID, query: str):
     # We'll pull top 10 chunks overall
     chroma_results = collection.query(
         query_embeddings=[query_embedding],
+        where={"document_id": {"$in": permitted_doc_ids}},
         n_results=10,
         include=["documents", "metadatas"],
     )
@@ -217,7 +228,7 @@ async def chat_query(
         db.add(user_msg)
 
         # Retrieve Context
-        results = await _hybrid_search(db, current_user.id, standalone_query)
+        results = await _hybrid_search(db, current_user, standalone_query)
         
         citations = []
         context_chunks = []

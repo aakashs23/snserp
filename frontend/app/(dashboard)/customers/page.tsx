@@ -38,10 +38,12 @@ interface Customer {
 }
 
 import { RoleGuard } from "@/components/role-guard"
+import { useAuth } from "@/components/providers/auth-provider"
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
 
 export default function CustomersPage() {
+  const { roleName } = useAuth()
   const [customers, setCustomers] = useState<Customer[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState("")
@@ -181,47 +183,49 @@ export default function CustomersPage() {
               Manage your customer database.
             </p>
           </div>
-          <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); if (!open) setEditingCustomer(null); }}>
-            <DialogTrigger asChild>
-              <Button onClick={openNew}>
-                <Plus className="h-4 w-4 mr-2" />
-                Add Customer
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="sm:max-w-[550px]">
-              <form onSubmit={handleSubmit}>
-                <DialogHeader>
-                  <DialogTitle>{editingCustomer ? "Edit Customer" : "Add Customer"}</DialogTitle>
-                  <DialogDescription>
-                    {editingCustomer ? "Update customer information." : "Enter the new customer's details."}
-                  </DialogDescription>
-                </DialogHeader>
-                <div className="grid gap-4 py-4">
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="customer_name">Customer Name *</Label>
-                      <Input id="customer_name" name="customer_name" required defaultValue={editingCustomer?.customer_name ?? ""} />
+          {roleName === "admin" && (
+            <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); if (!open) setEditingCustomer(null); }}>
+              <DialogTrigger asChild>
+                <Button onClick={openNew}>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add Customer
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="sm:max-w-[550px]">
+                <form onSubmit={handleSubmit}>
+                  <DialogHeader>
+                    <DialogTitle>{editingCustomer ? "Edit Customer" : "Add Customer"}</DialogTitle>
+                    <DialogDescription>
+                      {editingCustomer ? "Update customer information." : "Enter the new customer's details."}
+                    </DialogDescription>
+                  </DialogHeader>
+                  <div className="grid gap-4 py-4">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="customer_name">Customer Name *</Label>
+                        <Input id="customer_name" name="customer_name" required defaultValue={editingCustomer?.customer_name ?? ""} />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="gst_number">GSTIN Number *</Label>
+                        <Input id="gst_number" name="gst_number" required placeholder="e.g. 22AAAAA0000A1Z5" defaultValue={editingCustomer?.gst_number ?? ""} />
+                      </div>
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="gst_number">GSTIN Number *</Label>
-                      <Input id="gst_number" name="gst_number" required placeholder="e.g. 22AAAAA0000A1Z5" defaultValue={editingCustomer?.gst_number ?? ""} />
+                      <Label htmlFor="ht_sc_number">HT SC Number *</Label>
+                      <Input id="ht_sc_number" name="ht_sc_number" required defaultValue={editingCustomer?.ht_sc_number ?? ""} />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="address">Address *</Label>
+                      <Input id="address" name="address" required defaultValue={editingCustomer?.address ?? ""} />
                     </div>
                   </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="ht_sc_number">HT SC Number *</Label>
-                    <Input id="ht_sc_number" name="ht_sc_number" required defaultValue={editingCustomer?.ht_sc_number ?? ""} />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="address">Address *</Label>
-                    <Input id="address" name="address" required defaultValue={editingCustomer?.address ?? ""} />
-                  </div>
-                </div>
-                <DialogFooter>
-                  <Button type="submit">{editingCustomer ? "Save Changes" : "Create Customer"}</Button>
-                </DialogFooter>
-              </form>
-            </DialogContent>
-          </Dialog>
+                  <DialogFooter>
+                    <Button type="submit">{editingCustomer ? "Save Changes" : "Create Customer"}</Button>
+                  </DialogFooter>
+                </form>
+              </DialogContent>
+            </Dialog>
+          )}
         </div>
 
         {/* Search */}
@@ -247,7 +251,7 @@ export default function CustomersPage() {
                   <TableHead>GSTIN Number</TableHead>
                   <TableHead>HT SC Number</TableHead>
                   <TableHead>Address</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
+                  {roleName === "admin" && <TableHead className="text-right">Actions</TableHead>}
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -258,13 +262,13 @@ export default function CustomersPage() {
                       <TableCell><Skeleton className="h-4 w-24" /></TableCell>
                       <TableCell><Skeleton className="h-4 w-24" /></TableCell>
                       <TableCell><Skeleton className="h-4 w-48" /></TableCell>
-                      <TableCell><Skeleton className="h-4 w-16 ml-auto" /></TableCell>
+                      {roleName === "admin" && <TableCell><Skeleton className="h-4 w-16 ml-auto" /></TableCell>}
                     </TableRow>
                   ))
                 ) : customers.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={5} className="text-center py-12 text-muted-foreground">
-                      No customers found. Click "Add Customer" to get started.
+                    <TableCell colSpan={roleName === "admin" ? 5 : 4} className="text-center py-12 text-muted-foreground">
+                      No customers found. {roleName === "admin" && 'Click "Add Customer" to get started.'}
                     </TableCell>
                   </TableRow>
                 ) : (
@@ -274,22 +278,24 @@ export default function CustomersPage() {
                       <TableCell className="text-muted-foreground font-mono">{customer.gst_number || "—"}</TableCell>
                       <TableCell className="text-muted-foreground font-mono">{customer.ht_sc_number || "—"}</TableCell>
                       <TableCell className="text-muted-foreground truncate max-w-[200px]">{customer.address || "—"}</TableCell>
-                      <TableCell className="text-right">
-                        <div className="flex items-center justify-end gap-1">
-                          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(customer)}>
-                            <Pencil className="h-3.5 w-3.5" />
-                          </Button>
-                          {deleteConfirm === customer.id ? (
-                            <Button variant="destructive" size="sm" className="h-8" onClick={() => handleDelete(customer.id)}>
-                              Confirm
+                      {roleName === "admin" && (
+                        <TableCell className="text-right">
+                          <div className="flex items-center justify-end gap-1">
+                            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEdit(customer)}>
+                              <Pencil className="h-3.5 w-3.5" />
                             </Button>
-                          ) : (
-                            <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => setDeleteConfirm(customer.id)}>
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </Button>
-                          )}
-                        </div>
-                      </TableCell>
+                            {deleteConfirm === customer.id ? (
+                              <Button variant="destructive" size="sm" className="h-8" onClick={() => handleDelete(customer.id)}>
+                                Confirm
+                              </Button>
+                            ) : (
+                              <Button variant="ghost" size="icon" className="h-8 w-8 text-destructive" onClick={() => setDeleteConfirm(customer.id)}>
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </Button>
+                            )}
+                          </div>
+                        </TableCell>
+                      )}
                     </TableRow>
                   ))
                 )}

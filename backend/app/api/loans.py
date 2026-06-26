@@ -109,7 +109,7 @@ async def list_loans(
 async def create_loan(
     body: LoanCreate,
     db: AsyncSession = Depends(get_db),
-    _current_user: User = Depends(RequireRole(["admin", "accountant", "employee"])),
+    _current_user: User = Depends(RequireRole(["admin", "employee"])),
 ) -> LoanResponse:
     repo = BaseRepository(Loan, db)
     return await repo.create(body.model_dump())
@@ -133,7 +133,7 @@ async def update_loan(
     loan_id: UUID,
     body: LoanUpdate,
     db: AsyncSession = Depends(get_db),
-    _current_user: User = Depends(RequireRole(["admin", "accountant", "employee"])),
+    _current_user: User = Depends(RequireRole(["admin", "employee"])),
 ) -> LoanResponse:
     repo = BaseRepository(Loan, db)
     loan = await repo.get(loan_id)
@@ -147,7 +147,7 @@ async def update_loan(
 async def delete_loan(
     loan_id: UUID,
     db: AsyncSession = Depends(get_db),
-    _current_user: User = Depends(RequireRole(["admin", "accountant", "employee"])),
+    _current_user: User = Depends(RequireRole(["admin", "employee"])),
 ) -> dict:
     repo = BaseRepository(Loan, db)
     deleted = await repo.delete(loan_id)

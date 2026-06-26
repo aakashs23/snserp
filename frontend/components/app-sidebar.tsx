@@ -84,10 +84,14 @@ export function AppSidebar() {
           return roleName === "admin"
         }
         // Admin & Accountant
-        if (item.title === "Invoice Generator" || item.title === "Customers" || item.title === "Loans" || item.title === "Monthly Calculator") {
+        if (item.title === "Customers") {
           return roleName === "admin" || roleName === "accountant"
         }
         // Admin, Accountant, Employee
+        if (item.title === "Invoice Generator" || item.title === "Loans" || item.title === "Monthly Calculator") {
+          return roleName === "admin" || roleName === "accountant" || roleName === "employee"
+        }
+        // Admin, Accountant, Employee (Legacy group if needed)
         if (item.title === "Revenue Dashboard") {
           return roleName === "admin" || roleName === "accountant" || roleName === "employee"
         }

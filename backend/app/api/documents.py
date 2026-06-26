@@ -20,7 +20,7 @@ router = APIRouter()
 async def upload_document(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
-    current_user: User = Depends(RequireRole(["admin", "accountant", "employee"])),
+    current_user: User = Depends(RequireRole(["admin", "employee"])),
     db: AsyncSession = Depends(get_db)
 ):
     # 1. Read file bytes
@@ -106,7 +106,7 @@ async def list_documents(
         selectinload(Document.shared_with),
     ).where(Document.is_deleted == False)
 
-    if current_user.role.name == "viewer":
+    if current_user.role.name in ["viewer", "accountant"]:
         query = query.where(Document.status == "approved").where(Document.shared_with.any(User.id == current_user.id))
     
     if search:
@@ -132,7 +132,7 @@ async def preview_document(
     if not doc or doc.is_deleted:
         raise HTTPException(status_code=404, detail="Document not found")
         
-    if current_user.role.name == "viewer":
+    if current_user.role.name in ["viewer", "accountant"]:
         if doc.status != "approved" or not any(
             shared_user.id == current_user.id for shared_user in doc.shared_with
         ):
@@ -148,7 +148,7 @@ async def preview_document(
 @router.delete("/{document_id}")
 async def delete_document(
     document_id: uuid.UUID,
-    current_user: User = Depends(RequireRole(["admin", "accountant", "employee"])),
+    current_user: User = Depends(RequireRole(["admin", "employee"])),
     db: AsyncSession = Depends(get_db)
 ):
     doc = await db.get(Document, document_id)

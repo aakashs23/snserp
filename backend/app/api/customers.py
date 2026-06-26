@@ -61,7 +61,7 @@ async def get_customer(
 async def create_customer(
     body: CustomerCreate,
     db: AsyncSession = Depends(get_db),
-    _current_user: User = Depends(RequireRole(["admin", "accountant"])),
+    _current_user: User = Depends(RequireRole(["admin"])),
 ) -> CustomerResponse:
     """Create a new customer. Requires authentication."""
     repo = BaseRepository(Customer, db)
@@ -74,7 +74,7 @@ async def update_customer(
     customer_id: UUID,
     body: CustomerUpdate,
     db: AsyncSession = Depends(get_db),
-    _current_user: User = Depends(RequireRole(["admin", "accountant"])),
+    _current_user: User = Depends(RequireRole(["admin"])),
 ) -> CustomerResponse:
     """Update an existing customer. Requires authentication."""
     repo = BaseRepository(Customer, db)
@@ -90,7 +90,7 @@ async def update_customer(
 
 @router.delete(
     "/{customer_id}",
-    dependencies=[Depends(RequireRole(["admin", "accountant"]))],
+    dependencies=[Depends(RequireRole(["admin"]))],
 )
 async def delete_customer(
     customer_id: UUID,

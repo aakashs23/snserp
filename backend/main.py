@@ -22,6 +22,7 @@ from app.api.chat import router as chat_router
 from app.api.calculator import router as calculator_router
 from app.api.activity import router as activity_router
 from app.api.loans import router as loans_router
+from app.api.users import router as users_router
 
 
 @asynccontextmanager
@@ -73,3 +74,4 @@ app.include_router(chat_router, prefix="/api/v1/chat", tags=["AI Chat"])
 app.include_router(calculator_router, prefix="/api/v1/calculator", tags=["Calculator"])
 app.include_router(activity_router, prefix="/api/v1/activity", tags=["Activity Logs"])
 app.include_router(loans_router, prefix="/api/v1/loans", tags=["Loans"])
+app.include_router(users_router, prefix="/api/v1/users", tags=["Users"])

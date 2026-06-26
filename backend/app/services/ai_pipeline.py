@@ -32,6 +32,19 @@ embeddings = OllamaEmbeddings(
     model=settings.embedding_model
 )
 
+import tempfile
+import os
+
+# Lazy load OCR to prevent memory bloat on startup if unused
+_ocr_instance = None
+
+def get_ocr():
+    global _ocr_instance
+    if _ocr_instance is None:
+        from paddleocr import PaddleOCR
+        _ocr_instance = PaddleOCR(use_textline_orientation=True, lang='en', show_log=False)
+    return _ocr_instance
+
 async def process_document_background(document_id: UUID, file_bytes: bytes, file_name: str, mime_type: str):
     """
     Background task to process a document:
@@ -45,7 +58,10 @@ async def process_document_background(document_id: UUID, file_bytes: bytes, file
         
         # 1. Extract text
         extracted_text = ""
-        if mime_type == "application/pdf":
+        is_pdf = mime_type == "application/pdf"
+        is_image = mime_type and mime_type.startswith("image/")
+        
+        if is_pdf:
             try:
                 # Use PyMuPDF to extract text from PDF in memory
                 doc = fitz.open(stream=file_bytes, filetype="pdf")
@@ -54,10 +70,43 @@ async def process_document_background(document_id: UUID, file_bytes: bytes, file
                 doc.close()
             except Exception as e:
                 logger.error(f"PyMuPDF extraction failed: {e}")
-        else:
-            # Fallback for plain text or unsupported for now
-            if mime_type and mime_type.startswith("text/"):
-                extracted_text = file_bytes.decode('utf-8', errors='ignore')
+        elif mime_type and mime_type.startswith("text/"):
+            # Fallback for plain text
+            extracted_text = file_bytes.decode('utf-8', errors='ignore')
+
+        # If it's an image, or a PDF with very little selectable text (like a scanned PDF), use PaddleOCR
+        if is_image or (is_pdf and len(extracted_text.strip()) < 50):
+            logger.info(f"Using PaddleOCR for document {document_id}")
+            try:
+                ocr = get_ocr()
+                
+                # PaddleOCR requires a file path for multi-page PDFs or robust image reading
+                suffix = ".pdf" if is_pdf else (".jpg" if "jpeg" in mime_type else ".png")
+                with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+                    tmp.write(file_bytes)
+                    tmp_path = tmp.name
+                
+                result = ocr.ocr(tmp_path, cls=True)
+                
+                ocr_text = []
+                if result:
+                    for idx in range(len(result)):
+                        res = result[idx]
+                        if res:
+                            for line in res:
+                                ocr_text.append(line[1][0])
+                
+                paddle_text = "\n".join(ocr_text)
+                
+                # For PDFs, combine PyMuPDF text and OCR text if needed, or just use OCR if it's much longer
+                if is_pdf and len(extracted_text.strip()) > 0:
+                    extracted_text += "\n" + paddle_text
+                else:
+                    extracted_text = paddle_text
+                    
+                os.remove(tmp_path)
+            except Exception as e:
+                logger.error(f"PaddleOCR extraction failed: {e}")
 
         if not extracted_text.strip():
             logger.warning(f"No text extracted for document {document_id}")

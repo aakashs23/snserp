@@ -75,7 +75,7 @@ async def get_invoice(
 async def create_invoice(
     body: InvoiceCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(RequireRole(["admin", "accountant"])),
 ) -> InvoiceResponse:
     """Create a new invoice. Sets created_by from the authenticated user."""
     repo = BaseRepository(Invoice, db)
@@ -124,7 +124,7 @@ async def update_invoice(
     invoice_id: UUID,
     body: InvoiceUpdate,
     db: AsyncSession = Depends(get_db),
-    _current_user: User = Depends(get_current_user),
+    _current_user: User = Depends(RequireRole(["admin", "accountant"])),
 ) -> InvoiceResponse:
     """Update an existing invoice. Requires authentication."""
     repo = BaseRepository(Invoice, db)
@@ -140,7 +140,7 @@ async def update_invoice(
 
 @router.delete(
     "/{invoice_id}",
-    dependencies=[Depends(RequireRole(["admin"]))],
+    dependencies=[Depends(RequireRole(["admin", "accountant"]))],
 )
 async def delete_invoice(
     invoice_id: UUID,
@@ -190,7 +190,7 @@ from fastapi import File, UploadFile
 @router.post("/parse-excel")
 async def parse_excel(
     file: UploadFile = File(...),
-    _current_user: User = Depends(get_current_user),
+    _current_user: User = Depends(RequireRole(["admin", "accountant"])),
 ) -> dict:
     """Parse an uploaded Excel file for invoice generation with flexible 2D template parsing."""
     if not file.filename.endswith(".xlsx"):

@@ -13,12 +13,32 @@ from sqlalchemy import (
     Numeric,
     String,
     Text,
+    Table,
+    Column,
     func,
 )
 from sqlalchemy.dialects.postgresql import ARRAY, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, UUIDPrimaryKeyMixin
+
+# ── Association table (many-to-many: Document ↔ User for sharing) ────────────
+document_shares = Table(
+    "document_shares",
+    Base.metadata,
+    Column(
+        "document_id",
+        UUID(as_uuid=True),
+        ForeignKey("documents.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+    Column(
+        "user_id",
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+)
 
 
 class Document(UUIDPrimaryKeyMixin, Base):
@@ -47,6 +67,9 @@ class Document(UUIDPrimaryKeyMixin, Base):
     is_deleted: Mapped[bool] = mapped_column(
         Boolean, default=False, server_default="false"
     )
+    status: Mapped[str] = mapped_column(
+        String(20), default="approved", server_default="approved"
+    )
 
     # Relationships
     uploader = relationship(
@@ -56,6 +79,11 @@ class Document(UUIDPrimaryKeyMixin, Base):
         "DocumentMetadata", back_populates="document", uselist=False
     )
     ai_info = relationship("DocumentAI", back_populates="document", uselist=False)
+    shared_with = relationship(
+        "User",
+        secondary=document_shares,
+        backref="shared_documents"
+    )
 
 
 class DocumentMetadata(UUIDPrimaryKeyMixin, Base):

@@ -8,6 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Separator } from "@/components/ui/separator"
+import { RoleGuard } from "@/components/role-guard"
 
 interface CalculatorResponse {
   withdrawal_loss_units: number
@@ -24,11 +25,9 @@ interface CalculatorResponse {
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
 
 export default function CalculatorPage() {
-  // Metadata inputs (not used in calculation, just for worksheet feel)
   const [month, setMonth] = useState("")
   const [customer, setCustomer] = useState("")
 
-  // Numeric inputs
   const [unitsGenerated, setUnitsGenerated] = useState("10000")
   const [withdrawalLossPct, setWithdrawalLossPct] = useState("2")
   const [injectionLossPct, setInjectionLossPct] = useState("1")
@@ -36,24 +35,23 @@ export default function CalculatorPage() {
   const [openAccessCharges, setOpenAccessCharges] = useState("0")
   const [manualRoundOff, setManualRoundOff] = useState("")
 
-  // State
   const [result, setResult] = useState<CalculatorResponse | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // Validation function
   const isValid = () => {
     const units = parseFloat(unitsGenerated)
-    const wLoss = parseFloat(withdrawalLossPct)
-    const iLoss = parseFloat(injectionLossPct)
+    const withdrawalLoss = parseFloat(withdrawalLossPct)
+    const injectionLoss = parseFloat(injectionLossPct)
     const rate = parseFloat(perUnitRate)
-    const oac = parseFloat(openAccessCharges)
+    const charges = parseFloat(openAccessCharges)
 
-    if (isNaN(units) || units < 0) return false
-    if (isNaN(wLoss) || wLoss < 0 || wLoss > 100) return false
-    if (isNaN(iLoss) || iLoss < 0 || iLoss > 100) return false
-    if (isNaN(rate) || rate < 0) return false
-    if (isNaN(oac) || oac < 0) return false
+    if (Number.isNaN(units) || units < 0) return false
+    if (Number.isNaN(withdrawalLoss) || withdrawalLoss < 0 || withdrawalLoss > 100) return false
+    if (Number.isNaN(injectionLoss) || injectionLoss < 0 || injectionLoss > 100) return false
+    if (Number.isNaN(rate) || rate < 0) return false
+    if (Number.isNaN(charges) || charges < 0) return false
+
     return true
   }
 
@@ -62,15 +60,19 @@ export default function CalculatorPage() {
       setError("Please ensure all numeric inputs are valid. Percentages must be 0-100.")
       return
     }
+
     setError(null)
 
     const calculate = async () => {
       setLoading(true)
+
       try {
         const supabase = createClient()
-        const { data: { session } } = await supabase.auth.getSession()
+        const {
+          data: { session },
+        } = await supabase.auth.getSession()
 
-        const body: any = {
+        const body: Record<string, number> = {
           units_generated: parseFloat(unitsGenerated),
           withdrawal_loss_percent: parseFloat(withdrawalLossPct),
           injection_loss_percent: parseFloat(injectionLossPct),
@@ -78,17 +80,17 @@ export default function CalculatorPage() {
           open_access_charges: parseFloat(openAccessCharges) || 0,
         }
 
-        if (manualRoundOff && !isNaN(parseFloat(manualRoundOff))) {
+        if (manualRoundOff && !Number.isNaN(parseFloat(manualRoundOff))) {
           body.manual_round_off = parseFloat(manualRoundOff)
         }
 
         const res = await fetch(`${API_URL}/api/v1/calculator/calculate`, {
           method: "POST",
           headers: {
-            "Authorization": `Bearer ${session?.access_token}`,
-            "Content-Type": "application/json"
+            Authorization: `Bearer ${session?.access_token}`,
+            "Content-Type": "application/json",
           },
-          body: JSON.stringify(body)
+          body: JSON.stringify(body),
         })
 
         if (res.ok) {
@@ -96,14 +98,13 @@ export default function CalculatorPage() {
         } else {
           setError("Calculation failed on the server.")
         }
-      } catch (err) {
+      } catch {
         setError("Network error while calculating.")
       } finally {
         setLoading(false)
       }
     }
 
-    // Debounce the calculation request to avoid spamming the API on every keystroke
     const timeoutId = setTimeout(() => {
       calculate()
     }, 400)
@@ -111,238 +112,240 @@ export default function CalculatorPage() {
     return () => clearTimeout(timeoutId)
   }, [unitsGenerated, withdrawalLossPct, injectionLossPct, perUnitRate, openAccessCharges, manualRoundOff])
 
-  const formatCurrency = (n: number) => 
-    new Intl.NumberFormat("en-IN", { 
-      style: "currency", 
+  const formatCurrency = (n: number) =>
+    new Intl.NumberFormat("en-IN", {
+      style: "currency",
       currency: "INR",
       minimumFractionDigits: 2,
-      maximumFractionDigits: 2
+      maximumFractionDigits: 2,
     }).format(n)
 
-  const formatUnits = (n: number) => 
+  const formatUnits = (n: number) =>
     new Intl.NumberFormat("en-IN", { maximumFractionDigits: 2 }).format(n)
 
   return (
-    <div className="space-y-6 max-w-6xl mx-auto">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight font-[family-name:var(--font-heading)]">
-          Financial Worksheet Calculator
-        </h1>
-        <p className="text-muted-foreground mt-1">
-          Standard operational workflow calculator for Sri Naga Sai Energy.
-        </p>
-      </div>
+    <RoleGuard allowedRoles={["admin", "accountant"]}>
+      <div className="space-y-6 max-w-6xl mx-auto">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight font-[family-name:var(--font-heading)]">
+            Financial Worksheet Calculator
+          </h1>
+          <p className="text-muted-foreground mt-1">
+            Standard operational workflow calculator for Sri Naga Sai Energy.
+          </p>
+        </div>
 
-      <div className="grid gap-6 lg:grid-cols-12">
-        {/* Left Column: Inputs */}
-        <Card className="lg:col-span-5 flex flex-col">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <CalculatorIcon className="size-5 text-primary" />
-              Worksheet Parameters
-            </CardTitle>
-            <CardDescription>Enter values to instantly see calculations.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-6 flex-1">
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="month">Month</Label>
-                <Input 
-                  id="month" 
-                  placeholder="e.g. June 2026" 
-                  value={month} 
-                  onChange={(e) => setMonth(e.target.value)} 
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="customer">Customer</Label>
-                <Input 
-                  id="customer" 
-                  placeholder="e.g. Alpha Industries" 
-                  value={customer} 
-                  onChange={(e) => setCustomer(e.target.value)} 
-                />
-              </div>
-            </div>
-
-            <Separator />
-
-            <div className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="units">Number of Units Generated</Label>
-                <Input 
-                  id="units" 
-                  type="number" 
-                  step="0.01" 
-                  min="0"
-                  value={unitsGenerated} 
-                  onChange={(e) => setUnitsGenerated(e.target.value)} 
-                />
-              </div>
-
+        <div className="grid gap-6 lg:grid-cols-12">
+          {/* Left Column: Inputs */}
+          <Card className="lg:col-span-5 flex flex-col">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <CalculatorIcon className="size-5 text-primary" />
+                Worksheet Parameters
+              </CardTitle>
+              <CardDescription>Enter values to instantly see calculations.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6 flex-1">
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="wLoss">Withdrawal Loss (%)</Label>
+                  <Label htmlFor="month">Month</Label>
                   <Input 
-                    id="wLoss" 
-                    type="number" 
-                    step="0.01" 
-                    min="0" max="100"
-                    value={withdrawalLossPct} 
-                    onChange={(e) => setWithdrawalLossPct(e.target.value)} 
+                    id="month" 
+                    placeholder="e.g. June 2026" 
+                    value={month} 
+                    onChange={(e) => setMonth(e.target.value)} 
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="iLoss">Injection Loss (%)</Label>
+                  <Label htmlFor="customer">Customer</Label>
                   <Input 
-                    id="iLoss" 
-                    type="number" 
-                    step="0.01" 
-                    min="0" max="100"
-                    value={injectionLossPct} 
-                    onChange={(e) => setInjectionLossPct(e.target.value)} 
+                    id="customer" 
+                    placeholder="e.g. Alpha Industries" 
+                    value={customer} 
+                    onChange={(e) => setCustomer(e.target.value)} 
                   />
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <Separator />
+
+              <div className="space-y-4">
                 <div className="space-y-2">
-                  <Label htmlFor="rate">Per Unit Rate (₹)</Label>
+                  <Label htmlFor="units">Number of Units Generated</Label>
                   <Input 
-                    id="rate" 
+                    id="units" 
                     type="number" 
                     step="0.01" 
                     min="0"
-                    value={perUnitRate} 
-                    onChange={(e) => setPerUnitRate(e.target.value)} 
+                    value={unitsGenerated} 
+                    onChange={(e) => setUnitsGenerated(e.target.value)} 
                   />
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="oac">Open Access Charges</Label>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="wLoss">Withdrawal Loss (%)</Label>
+                    <Input 
+                      id="wLoss" 
+                      type="number" 
+                      step="0.01" 
+                      min="0" max="100"
+                      value={withdrawalLossPct} 
+                      onChange={(e) => setWithdrawalLossPct(e.target.value)} 
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="iLoss">Injection Loss (%)</Label>
+                    <Input 
+                      id="iLoss" 
+                      type="number" 
+                      step="0.01" 
+                      min="0" max="100"
+                      value={injectionLossPct} 
+                      onChange={(e) => setInjectionLossPct(e.target.value)} 
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="rate">Per Unit Rate (₹)</Label>
+                    <Input 
+                      id="rate" 
+                      type="number" 
+                      step="0.01" 
+                      min="0"
+                      value={perUnitRate} 
+                      onChange={(e) => setPerUnitRate(e.target.value)} 
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="oac">Open Access Charges</Label>
+                    <Input 
+                      id="oac" 
+                      type="number" 
+                      step="0.01" 
+                      min="0"
+                      value={openAccessCharges} 
+                      onChange={(e) => setOpenAccessCharges(e.target.value)} 
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-2 pt-2">
+                  <Label htmlFor="roundOff" className="text-muted-foreground flex items-center justify-between">
+                    <span>Manual Round Off / On (Optional)</span>
+                    <span className="text-xs font-normal">Overrides auto-rounding</span>
+                  </Label>
                   <Input 
-                    id="oac" 
+                    id="roundOff" 
                     type="number" 
                     step="0.01" 
-                    min="0"
-                    value={openAccessCharges} 
-                    onChange={(e) => setOpenAccessCharges(e.target.value)} 
+                    placeholder="e.g. -0.47"
+                    value={manualRoundOff} 
+                    onChange={(e) => setManualRoundOff(e.target.value)} 
                   />
                 </div>
               </div>
+              
+              {error && (
+                <div className="p-3 bg-destructive/10 text-destructive text-sm rounded-md border border-destructive/20 mt-4">
+                  {error}
+                </div>
+              )}
+            </CardContent>
+          </Card>
 
-              <div className="space-y-2 pt-2">
-                <Label htmlFor="roundOff" className="text-muted-foreground flex items-center justify-between">
-                  <span>Manual Round Off / On (Optional)</span>
-                  <span className="text-xs font-normal">Overrides auto-rounding</span>
-                </Label>
-                <Input 
-                  id="roundOff" 
-                  type="number" 
-                  step="0.01" 
-                  placeholder="e.g. -0.47"
-                  value={manualRoundOff} 
-                  onChange={(e) => setManualRoundOff(e.target.value)} 
-                />
-              </div>
+          {/* Right Column: Calculations */}
+          <Card className="lg:col-span-7 bg-muted/20 border-primary/10 shadow-inner flex flex-col relative overflow-hidden">
+            {/* Subtle loading indicator at the top edge */}
+            <div className="absolute top-0 left-0 right-0 h-1 bg-muted overflow-hidden">
+              {loading && <div className="h-full bg-primary animate-pulse w-full"></div>}
             </div>
             
-            {error && (
-              <div className="p-3 bg-destructive/10 text-destructive text-sm rounded-md border border-destructive/20 mt-4">
-                {error}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Right Column: Calculations */}
-        <Card className="lg:col-span-7 bg-muted/20 border-primary/10 shadow-inner flex flex-col relative overflow-hidden">
-          {/* Subtle loading indicator at the top edge */}
-          <div className="absolute top-0 left-0 right-0 h-1 bg-muted overflow-hidden">
-            {loading && <div className="h-full bg-primary animate-pulse w-full"></div>}
-          </div>
-          
-          <CardHeader>
-            <CardTitle className="flex items-center justify-between">
-              Calculation Output
-              {loading && <Loader2 className="size-4 animate-spin text-muted-foreground" />}
-              {!loading && result && !error && <CheckCircle2 className="size-4 text-emerald-500" />}
-            </CardTitle>
-            <CardDescription>Live breakdown of the billing amounts.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-6 flex-1">
-            {!result ? (
-              <div className="h-full flex flex-col items-center justify-center text-muted-foreground opacity-50 space-y-4">
-                <ArrowRight className="size-10" />
-                <p>Fill out the parameters to see results</p>
-              </div>
-            ) : (
-              <div className="space-y-8 animate-in fade-in duration-300">
-                {/* Unit Calculations */}
-                <div className="space-y-3">
-                  <h4 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Units Breakdown</h4>
-                  
-                  <div className="grid grid-cols-[1fr_auto] gap-2 text-sm items-center">
-                    <span className="text-muted-foreground">Total Units Generated</span>
-                    <span className="font-medium">{formatUnits(parseFloat(unitsGenerated) || 0)}</span>
-                    
-                    <span className="text-muted-foreground pl-4 border-l-2 border-border/50">− Withdrawal Loss Units</span>
-                    <span className="text-destructive font-medium">{formatUnits(result.withdrawal_loss_units)}</span>
-                    
-                    <span className="text-muted-foreground pl-4 border-l-2 border-border/50">− Injection Loss Units</span>
-                    <span className="text-destructive font-medium">{formatUnits(result.injection_loss_units)}</span>
-                    
-                    <span className="text-muted-foreground pl-4 border-l-2 border-border/50">= Total Line Loss Units</span>
-                    <span className="text-destructive font-medium">{formatUnits(result.total_line_loss_units)}</span>
-                  </div>
-
-                  <div className="flex justify-between items-center py-2 px-3 bg-secondary/50 rounded-md mt-2">
-                    <span className="font-medium">Sellable Units</span>
-                    <span className="font-bold text-lg">{formatUnits(result.sellable_units)}</span>
-                  </div>
+            <CardHeader>
+              <CardTitle className="flex items-center justify-between">
+                Calculation Output
+                {loading && <Loader2 className="size-4 animate-spin text-muted-foreground" />}
+                {!loading && result && !error && <CheckCircle2 className="size-4 text-emerald-500" />}
+              </CardTitle>
+              <CardDescription>Live breakdown of the billing amounts.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6 flex-1">
+              {!result ? (
+                <div className="h-full flex flex-col items-center justify-center text-muted-foreground opacity-50 space-y-4">
+                  <ArrowRight className="size-10" />
+                  <p>Fill out the parameters to see results</p>
                 </div>
-
-                <Separator />
-
-                {/* Financial Calculations */}
-                <div className="space-y-3">
-                  <h4 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Financial Breakdown</h4>
-                  
-                  <div className="grid grid-cols-[1fr_auto] gap-2 text-sm items-center">
-                    <span className="text-muted-foreground font-medium">Gross Revenue (Sellable × Rate)</span>
-                    <span className="font-medium text-emerald-600">{formatCurrency(result.gross_revenue)}</span>
+              ) : (
+                <div className="space-y-8 animate-in fade-in duration-300">
+                  {/* Unit Calculations */}
+                  <div className="space-y-3">
+                    <h4 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Units Breakdown</h4>
                     
-                    <span className="text-muted-foreground">− Open Access Charges</span>
-                    <span className="text-destructive font-medium">{formatCurrency(parseFloat(openAccessCharges) || 0)}</span>
-                    
-                    <span className="text-muted-foreground">− Generation Tax (₹0.63/Unit)</span>
-                    <span className="text-destructive font-medium">{formatCurrency(result.generation_tax)}</span>
-                    
-                    <span className="text-muted-foreground">− Agent Commission (₹0.10/Unit)</span>
-                    <span className="text-amber-600 font-medium">{formatCurrency(result.agent_commission)}</span>
-                    
-                    <span className="text-muted-foreground">Round Off Applied</span>
-                    <span className="font-medium">{formatCurrency(result.applied_round_off)}</span>
-                  </div>
-                </div>
-
-                {/* Final Result */}
-                <div className="mt-8 pt-6 border-t border-primary/20">
-                  <div className="bg-primary/5 border border-primary/10 p-5 rounded-xl flex justify-between items-center shadow-sm">
-                    <div className="space-y-1">
-                      <span className="font-semibold text-lg">Net Income</span>
-                      <p className="text-xs text-muted-foreground">Final payable amount rounded to nearest integer</p>
+                    <div className="grid grid-cols-[1fr_auto] gap-2 text-sm items-center">
+                      <span className="text-muted-foreground">Total Units Generated</span>
+                      <span className="font-medium">{formatUnits(parseFloat(unitsGenerated) || 0)}</span>
+                      
+                      <span className="text-muted-foreground pl-4 border-l-2 border-border/50">− Withdrawal Loss Units</span>
+                      <span className="text-destructive font-medium">{formatUnits(result.withdrawal_loss_units)}</span>
+                      
+                      <span className="text-muted-foreground pl-4 border-l-2 border-border/50">− Injection Loss Units</span>
+                      <span className="text-destructive font-medium">{formatUnits(result.injection_loss_units)}</span>
+                      
+                      <span className="text-muted-foreground pl-4 border-l-2 border-border/50">= Total Line Loss Units</span>
+                      <span className="text-destructive font-medium">{formatUnits(result.total_line_loss_units)}</span>
                     </div>
-                    <span className="text-3xl font-bold text-primary tracking-tight">
-                      {formatCurrency(result.final_net_income)}
-                    </span>
-                  </div>
-                </div>
 
-              </div>
-            )}
-          </CardContent>
-        </Card>
+                    <div className="flex justify-between items-center py-2 px-3 bg-secondary/50 rounded-md mt-2">
+                      <span className="font-medium">Sellable Units</span>
+                      <span className="font-bold text-lg">{formatUnits(result.sellable_units)}</span>
+                    </div>
+                  </div>
+
+                  <Separator />
+
+                  {/* Financial Calculations */}
+                  <div className="space-y-3">
+                    <h4 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Financial Breakdown</h4>
+                    
+                    <div className="grid grid-cols-[1fr_auto] gap-2 text-sm items-center">
+                      <span className="text-muted-foreground font-medium">Gross Revenue (Sellable × Rate)</span>
+                      <span className="font-medium text-emerald-600">{formatCurrency(result.gross_revenue)}</span>
+                      
+                      <span className="text-muted-foreground">− Open Access Charges</span>
+                      <span className="text-destructive font-medium">{formatCurrency(parseFloat(openAccessCharges) || 0)}</span>
+                      
+                      <span className="text-muted-foreground">− Generation Tax (₹0.63/Unit)</span>
+                      <span className="text-destructive font-medium">{formatCurrency(result.generation_tax)}</span>
+                      
+                      <span className="text-muted-foreground">− Agent Commission (₹0.10/Unit)</span>
+                      <span className="text-amber-600 font-medium">{formatCurrency(result.agent_commission)}</span>
+                      
+                      <span className="text-muted-foreground">Round Off Applied</span>
+                      <span className="font-medium">{formatCurrency(result.applied_round_off)}</span>
+                    </div>
+                  </div>
+
+                  {/* Final Result */}
+                  <div className="mt-8 pt-6 border-t border-primary/20">
+                    <div className="bg-primary/5 border border-primary/10 p-5 rounded-xl flex justify-between items-center shadow-sm">
+                      <div className="space-y-1">
+                        <span className="font-semibold text-lg">Net Income</span>
+                        <p className="text-xs text-muted-foreground">Final payable amount rounded to nearest integer</p>
+                      </div>
+                      <span className="text-3xl font-bold text-primary tracking-tight">
+                        {formatCurrency(result.final_net_income)}
+                      </span>
+                    </div>
+                  </div>
+
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
       </div>
-    </div>
+    </RoleGuard>
   )
 }

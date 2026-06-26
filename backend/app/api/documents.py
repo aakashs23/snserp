@@ -9,7 +9,8 @@ from app.database.session import get_db
 from app.models.documents import Document, DocumentAI
 from app.models.users import User
 from app.middleware.auth import get_current_user
-from app.schemas.documents import DocumentResponse, DocumentCombinedResponse
+from app.middleware.rbac import RequireRole
+from app.schemas.documents import DocumentResponse, DocumentCombinedResponse, ShareRequest
 from app.config.supabase import supabase
 from app.services.ai_pipeline import process_document_background
 
@@ -19,7 +20,7 @@ router = APIRouter()
 async def upload_document(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(RequireRole(["admin", "accountant", "employee"])),
     db: AsyncSession = Depends(get_db)
 ):
     # 1. Read file bytes
@@ -76,7 +77,11 @@ async def upload_document(
     # Eager load relationships for response
     result = await db.execute(
         select(Document)
-        .options(selectinload(Document.metadata_info), selectinload(Document.ai_info))
+        .options(
+            selectinload(Document.metadata_info),
+            selectinload(Document.ai_info),
+            selectinload(Document.shared_with),
+        )
         .where(Document.id == doc_id)
     )
     doc = result.scalar_one()
@@ -97,8 +102,12 @@ async def list_documents(
     """
     query = select(Document).options(
         selectinload(Document.metadata_info),
-        selectinload(Document.ai_info)
+        selectinload(Document.ai_info),
+        selectinload(Document.shared_with),
     ).where(Document.is_deleted == False)
+
+    if current_user.role.name == "viewer":
+        query = query.where(Document.status == "approved").where(Document.shared_with.any(User.id == current_user.id))
     
     if search:
         query = query.where(Document.original_name.ilike(f"%{search}%"))
@@ -116,9 +125,18 @@ async def preview_document(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    doc = await db.get(Document, document_id)
+    stmt = select(Document).options(selectinload(Document.shared_with)).where(Document.id == document_id)
+    res = await db.execute(stmt)
+    doc = res.scalar_one_or_none()
+    
     if not doc or doc.is_deleted:
         raise HTTPException(status_code=404, detail="Document not found")
+        
+    if current_user.role.name == "viewer":
+        if doc.status != "approved" or not any(
+            shared_user.id == current_user.id for shared_user in doc.shared_with
+        ):
+            raise HTTPException(status_code=403, detail="Access denied")
         
     # Generate signed URL valid for 1 hour
     try:
@@ -130,7 +148,7 @@ async def preview_document(
 @router.delete("/{document_id}")
 async def delete_document(
     document_id: uuid.UUID,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(RequireRole(["admin", "accountant", "employee"])),
     db: AsyncSession = Depends(get_db)
 ):
     doc = await db.get(Document, document_id)
@@ -140,3 +158,26 @@ async def delete_document(
     doc.is_deleted = True
     await db.commit()
     return {"deleted": True}
+
+@router.post("/{document_id}/share")
+async def share_document(
+    document_id: uuid.UUID,
+    payload: ShareRequest,
+    current_user: User = Depends(RequireRole(["admin"])),
+    db: AsyncSession = Depends(get_db)
+):
+    stmt = select(Document).options(selectinload(Document.shared_with)).where(Document.id == document_id)
+    res = await db.execute(stmt)
+    doc = res.scalar_one_or_none()
+    if not doc or doc.is_deleted:
+        raise HTTPException(status_code=404, detail="Document not found")
+        
+    # Get the users to share with
+    stmt_users = select(User).where(User.id.in_(payload.user_ids))
+    res_users = await db.execute(stmt_users)
+    users = res_users.scalars().all()
+    
+    # Replace the sharing list or append? We'll replace it to be simple.
+    doc.shared_with = users
+    await db.commit()
+    return {"status": "success", "shared_with": [str(u.id) for u in doc.shared_with]}

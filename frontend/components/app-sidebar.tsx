@@ -33,6 +33,8 @@ import {
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { signout } from "@/app/actions/auth"
 
+import { useAuth } from "@/components/providers/auth-provider"
+
 const navMain = [
   {
     label: "Overview",
@@ -60,6 +62,7 @@ const navMain = [
     label: "Manage",
     items: [
       { title: "Customers", url: "/customers", icon: Users },
+      { title: "Users", url: "/users", icon: Users },
       { title: "Activity Logs", url: "/activity", icon: Activity },
       { title: "Settings", url: "/settings", icon: Settings },
     ],
@@ -68,6 +71,31 @@ const navMain = [
 
 export function AppSidebar() {
   const pathname = usePathname()
+  const { roleName, isLoading } = useAuth()
+
+  if (isLoading) return null
+
+  const filteredNavMain = navMain.map(group => {
+    return {
+      ...group,
+      items: group.items.filter(item => {
+        // Admin only
+        if (item.title === "Users" || item.title === "Activity Logs") {
+          return roleName === "admin"
+        }
+        // Admin & Accountant
+        if (item.title === "Invoice Generator" || item.title === "Customers" || item.title === "Loans" || item.title === "Monthly Calculator") {
+          return roleName === "admin" || roleName === "accountant"
+        }
+        // Admin, Accountant, Employee
+        if (item.title === "Revenue Dashboard") {
+          return roleName === "admin" || roleName === "accountant" || roleName === "employee"
+        }
+        // Dashboard, Documents, Invoice Register, Settings visible to all
+        return true
+      })
+    }
+  }).filter(group => group.items.length > 0)
 
   return (
     <Sidebar collapsible="icon" className="border-r-0">
@@ -89,7 +117,7 @@ export function AppSidebar() {
         </SidebarMenu>
       </SidebarHeader>
       <SidebarContent>
-        {navMain.map((group) => (
+        {filteredNavMain.map((group) => (
           <SidebarGroup key={group.label}>
             <SidebarGroupLabel>{group.label}</SidebarGroupLabel>
             <SidebarGroupContent>

@@ -14,10 +14,24 @@ export async function login(formData: FormData) {
     password: formData.get('password') as string,
   }
 
-  const { error } = await supabase.auth.signInWithPassword(data)
+  const { data: authData, error } = await supabase.auth.signInWithPassword(data)
 
   if (error) {
     redirect('/login?error=' + encodeURIComponent(error.message))
+  }
+
+  if (authData?.session) {
+    const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000"
+    try {
+      await fetch(`${API_URL}/api/v1/users/me/last-login`, {
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${authData.session.access_token}`
+        }
+      })
+    } catch (e) {
+      console.error("Failed to update last login", e)
+    }
   }
 
   revalidatePath('/', 'layout')

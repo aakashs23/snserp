@@ -1,4 +1,4 @@
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from uuid import UUID
 from datetime import datetime, date
 from typing import Optional, List
@@ -56,6 +56,10 @@ class DocumentCombinedResponse(BaseModel):
     ai_category: Optional[str] = None
     ai_status: str = "pending"  # embedding_status renamed
     
+    # Document state
+    status: str = "approved"
+    shared_with_ids: List[UUID] = Field(default_factory=list)
+    
     # Metadata fields
     title: Optional[str] = None
     description: Optional[str] = None
@@ -97,4 +101,9 @@ class DocumentCombinedResponse(BaseModel):
             page_count=doc.metadata_info.page_count if doc.metadata_info else None,
             language=doc.metadata_info.language if doc.metadata_info else None,
             confidence_score=doc.metadata_info.confidence_score if doc.metadata_info else None,
+            status=getattr(doc, "status", "approved"),
+            shared_with_ids=[u.id for u in getattr(doc, "shared_with", [])],
         )
+
+class ShareRequest(BaseModel):
+    user_ids: List[UUID]

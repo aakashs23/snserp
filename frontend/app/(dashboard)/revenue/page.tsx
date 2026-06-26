@@ -18,6 +18,7 @@ import {
 
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
+import { RoleGuard } from "@/components/role-guard"
 
 interface MonthlyRevenueItem {
   month: string
@@ -79,24 +80,29 @@ export default function RevenueDashboardPage() {
 
   if (loading) {
     return (
-      <div className="space-y-6">
-        <h1 className="text-3xl font-bold tracking-tight">Revenue Dashboard</h1>
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-          {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-32 rounded-xl" />)}
+      <RoleGuard allowedRoles={["admin", "accountant", "employee"]}>
+        <div className="space-y-6">
+          <h1 className="text-3xl font-bold tracking-tight">Revenue Dashboard</h1>
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+            {Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-32 rounded-xl" />)}
+          </div>
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
+            <Skeleton className="lg:col-span-4 h-[400px] rounded-xl" />
+            <Skeleton className="lg:col-span-3 h-[400px] rounded-xl" />
+          </div>
         </div>
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
-          <Skeleton className="lg:col-span-4 h-[400px] rounded-xl" />
-          <Skeleton className="lg:col-span-3 h-[400px] rounded-xl" />
-        </div>
-      </div>
+      </RoleGuard>
     )
   }
 
-  if (!data) return <div>Error loading data.</div>
-import { RoleGuard } from "@/components/role-guard"
+  if (!data) {
+    return (
+      <RoleGuard allowedRoles={["admin", "accountant", "employee"]}>
+        <div>Error loading data.</div>
+      </RoleGuard>
+    )
+  }
 
-export default function RevenueDashboardPage() {
-// ...
   return (
     <RoleGuard allowedRoles={["admin", "accountant", "employee"]}>
       <div className="space-y-6">

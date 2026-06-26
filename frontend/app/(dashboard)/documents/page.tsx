@@ -1,9 +1,10 @@
 "use client"
 
 import { useState, useEffect, useCallback, useRef } from "react"
-import { UploadCloud, File, Search, Trash2, Eye, Download, FileText, CheckCircle2, Clock } from "lucide-react"
+import { UploadCloud, File, Search, Trash2, Eye, Download, FileText, CheckCircle2, Clock, Share2 } from "lucide-react"
 import { toast } from "sonner"
 import { createClient } from "@/utils/supabase/client"
+import { useAuth } from "@/components/providers/auth-provider"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -39,6 +40,7 @@ interface DocRecord {
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
 
 export default function DocumentsPage() {
+  const { roleName } = useAuth()
   const [documents, setDocuments] = useState<DocRecord[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState("")
@@ -175,19 +177,21 @@ export default function DocumentsPage() {
           </p>
         </div>
         
-        <div>
-          <input 
-            type="file" 
-            className="hidden" 
-            ref={fileInputRef} 
-            onChange={handleUpload}
-            accept=".pdf,.png,.jpg,.jpeg,.doc,.docx"
-          />
-          <Button onClick={() => fileInputRef.current?.click()} disabled={uploading}>
-            <UploadCloud className="h-4 w-4 mr-2" />
-            {uploading ? "Uploading..." : "Upload Document"}
-          </Button>
-        </div>
+        {roleName !== "viewer" && (
+          <div>
+            <input 
+              type="file" 
+              className="hidden" 
+              ref={fileInputRef} 
+              onChange={handleUpload}
+              accept=".pdf,.png,.jpg,.jpeg,.doc,.docx"
+            />
+            <Button onClick={() => fileInputRef.current?.click()} disabled={uploading}>
+              <UploadCloud className="h-4 w-4 mr-2" />
+              {uploading ? "Uploading..." : "Upload Document"}
+            </Button>
+          </div>
+        )}
       </div>
 
       <div className="flex items-center gap-4">
@@ -287,9 +291,30 @@ export default function DocumentsPage() {
                         <Button variant="ghost" size="icon" onClick={() => handlePreview(doc.id)} title="Preview">
                           <Eye className="h-4 w-4" />
                         </Button>
-                        <Button variant="ghost" size="icon" className="text-destructive" onClick={() => handleDelete(doc.id)} title="Delete">
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
+                        {roleName === "admin" && (
+                          <Button variant="ghost" size="icon" onClick={() => {
+                            const userId = window.prompt("Enter the User ID to share this document with:")
+                            if (userId) {
+                              getAuthHeaders().then(headers => {
+                                fetch(`${API_URL}/api/v1/documents/${doc.id}/share`, {
+                                  method: "POST",
+                                  headers: { ...headers, "Content-Type": "application/json" },
+                                  body: JSON.stringify({ user_ids: [userId] })
+                                }).then(res => {
+                                  if (res.ok) toast.success("Document shared successfully")
+                                  else toast.error("Failed to share document")
+                                })
+                              })
+                            }
+                          }} title="Share">
+                            <Share2 className="h-4 w-4 text-blue-500" />
+                          </Button>
+                        )}
+                        {roleName !== "viewer" && (
+                          <Button variant="ghost" size="icon" className="text-destructive" onClick={() => handleDelete(doc.id)} title="Delete">
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        )}
                       </div>
                     </TableCell>
                   </TableRow>

@@ -4,7 +4,8 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "check:dashboard-pages": "node scripts/check-dashboard-pages.mjs",
+    "build": "npm run check:dashboard-pages && next build",
     "start": "next start",
     "lint": "eslint"
   },

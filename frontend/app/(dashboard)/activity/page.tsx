@@ -28,10 +28,71 @@ interface ActivityLog {
   user_name: string | null
   user_email: string | null
 }
+
 import { RoleGuard } from "@/components/role-guard"
 
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
+
 export default function ActivityLogsPage() {
-// ...
+  const [logs, setLogs] = useState<ActivityLog[]>([])
+  const [loading, setLoading] = useState(true)
+  const [page, setPage] = useState(1)
+  const [total, setTotal] = useState(0)
+
+  const fetchLogs = useCallback(async (pageNum: number) => {
+    setLoading(true)
+
+    try {
+      const supabase = createClient()
+      const {
+        data: { session },
+      } = await supabase.auth.getSession()
+
+      const res = await fetch(`${API_URL}/api/v1/activity?page=${pageNum}&size=20`, {
+        headers: {
+          Authorization: `Bearer ${session?.access_token}`,
+        },
+      })
+
+      if (res.ok) {
+        const data = await res.json()
+        setLogs(data.items)
+        setTotal(data.total)
+      } else {
+        toast.error("Failed to load activity logs")
+      }
+    } catch {
+      toast.error("Network error")
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    fetchLogs(page)
+  }, [page, fetchLogs])
+
+  const getActionIcon = (action: string) => {
+    const normalizedAction = action.toLowerCase()
+
+    if (normalizedAction.includes("delete")) {
+      return <ShieldAlert className="size-4 text-destructive" />
+    }
+    if (normalizedAction.includes("document") || normalizedAction.includes("invoice")) {
+      return <FileText className="size-4 text-primary" />
+    }
+    if (normalizedAction.includes("login")) {
+      return <LogIn className="size-4 text-chart-2" />
+    }
+    if (normalizedAction.includes("user")) {
+      return <UserIcon className="size-4 text-chart-4" />
+    }
+
+    return <HardDrive className="size-4 text-muted-foreground" />
+  }
+
+  const totalPages = Math.ceil(total / 20)
+
   return (
     <RoleGuard allowedRoles={["admin"]}>
       <div className="space-y-6">

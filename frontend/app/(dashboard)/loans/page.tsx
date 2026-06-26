@@ -57,10 +57,166 @@ interface AmortizationRow {
   interest: number
   remaining_balance: number
 }
+
 import { RoleGuard } from "@/components/role-guard"
 
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
+
 export default function LoansPage() {
-// ...
+  const [loans, setLoans] = useState<Loan[]>([])
+  const [metrics, setMetrics] = useState<DashboardMetrics | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [dialogOpen, setDialogOpen] = useState(false)
+  const [editingLoan, setEditingLoan] = useState<Loan | null>(null)
+  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
+
+  const [amortizationOpen, setAmortizationOpen] = useState(false)
+  const [amortizationData, setAmortizationData] = useState<AmortizationRow[]>([])
+  const [amortizationLoading, setAmortizationLoading] = useState(false)
+  const [selectedLoan, setSelectedLoan] = useState<Loan | null>(null)
+
+  const getAuthHeaders = useCallback(async () => {
+    const supabase = createClient()
+    const {
+      data: { session },
+    } = await supabase.auth.getSession()
+
+    return {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${session?.access_token}`,
+    }
+  }, [])
+
+  const fetchData = useCallback(async () => {
+    try {
+      const headers = await getAuthHeaders()
+      const [loansRes, metricsRes] = await Promise.all([
+        fetch(`${API_URL}/api/v1/loans`, { headers }),
+        fetch(`${API_URL}/api/v1/loans/dashboard`, { headers }),
+      ])
+
+      if (loansRes.ok) {
+        setLoans(await loansRes.json())
+      }
+      if (metricsRes.ok) {
+        setMetrics(await metricsRes.json())
+      }
+    } catch {
+      toast.error("Failed to fetch loans data")
+    } finally {
+      setLoading(false)
+    }
+  }, [getAuthHeaders])
+
+  useEffect(() => {
+    fetchData()
+  }, [fetchData])
+
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault()
+    const formData = new FormData(e.currentTarget)
+    const body = Object.fromEntries(formData.entries())
+    const payload = {
+      ...body,
+      principal_amount: parseFloat(body.principal_amount as string),
+      interest_rate_annual: parseFloat(body.interest_rate_annual as string),
+      tenure_months: parseInt(body.tenure_months as string),
+    }
+
+    try {
+      const headers = await getAuthHeaders()
+      const url = editingLoan
+        ? `${API_URL}/api/v1/loans/${editingLoan.id}`
+        : `${API_URL}/api/v1/loans`
+      const method = editingLoan ? "PUT" : "POST"
+
+      const res = await fetch(url, { method, headers, body: JSON.stringify(payload) })
+
+      if (res.ok) {
+        toast.success(editingLoan ? "Loan updated" : "Loan created")
+        setDialogOpen(false)
+        setEditingLoan(null)
+        fetchData()
+      } else {
+        const err = await res.json()
+        let errorMessage = "Operation failed."
+
+        if (err.detail) {
+          if (Array.isArray(err.detail)) {
+            errorMessage = err.detail
+              .map((entry: any) => `${entry.loc?.join(".")} - ${entry.msg}`)
+              .join(", ")
+          } else if (typeof err.detail === "string") {
+            errorMessage = err.detail
+          }
+        }
+
+        toast.error(errorMessage)
+      }
+    } catch {
+      toast.error("Network error")
+    }
+  }
+
+  const handleDelete = async (id: string) => {
+    try {
+      const headers = await getAuthHeaders()
+      const res = await fetch(`${API_URL}/api/v1/loans/${id}`, { method: "DELETE", headers })
+
+      if (res.ok) {
+        toast.success("Loan deleted")
+        setDeleteConfirm(null)
+        fetchData()
+      } else {
+        const err = await res.json()
+        toast.error(err.detail || "Failed to delete")
+      }
+    } catch {
+      toast.error("Network error")
+    }
+  }
+
+  const handleViewAmortization = async (loan: Loan) => {
+    setSelectedLoan(loan)
+    setAmortizationOpen(true)
+    setAmortizationLoading(true)
+
+    try {
+      const headers = await getAuthHeaders()
+      const res = await fetch(`${API_URL}/api/v1/loans/${loan.id}/amortization`, { headers })
+
+      if (res.ok) {
+        const data = await res.json()
+        setAmortizationData(data.schedule)
+      } else {
+        toast.error("Failed to load schedule")
+      }
+    } catch {
+      toast.error("Network error")
+    } finally {
+      setAmortizationLoading(false)
+    }
+  }
+
+  const openEdit = (loan: Loan) => {
+    setEditingLoan(loan)
+    setDialogOpen(true)
+  }
+
+  const openNew = () => {
+    setEditingLoan(null)
+    setDialogOpen(true)
+  }
+
+  const formatCurrency = (n: number | null | undefined) =>
+    n != null
+      ? new Intl.NumberFormat("en-IN", {
+          style: "currency",
+          currency: "INR",
+          maximumFractionDigits: 0,
+        }).format(n)
+      : "—"
+
   return (
     <RoleGuard allowedRoles={["admin", "accountant"]}>
       <div className="space-y-6">

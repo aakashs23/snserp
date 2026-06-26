@@ -1,3 +1,5 @@
+"use client"
+
 import {
   BarChart3,
   FileText,
@@ -11,6 +13,7 @@ import {
 import Link from "next/link"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
+import { useAuth } from "@/components/providers/auth-provider"
 
 const stats = [
   {
@@ -51,6 +54,8 @@ const quickActions = [
 ]
 
 export default function DashboardPage() {
+  const { roleName } = useAuth()
+
   return (
     <div className="space-y-8">
       {/* Page Header */}
@@ -83,27 +88,29 @@ export default function DashboardPage() {
         ))}
       </div>
 
-      {/* Quick Actions */}
-      <div>
-        <h2 className="text-lg font-semibold mb-4">Quick Actions</h2>
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {quickActions.map((action) => (
-            <Button
-              key={action.title}
-              variant="outline"
-              className="h-auto flex-col gap-3 p-6 hover:shadow-md transition-all duration-200"
-              asChild
-            >
-              <Link href={action.href}>
-                <div className={`rounded-lg p-2.5 ${action.color} text-white`}>
-                  <action.icon className="h-5 w-5" />
-                </div>
-                <span className="font-medium">{action.title}</span>
-              </Link>
-            </Button>
-          ))}
+      {/* Quick Actions - Hidden for viewers */}
+      {roleName !== "viewer" && (
+        <div>
+          <h2 className="text-lg font-semibold mb-4">Quick Actions</h2>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            {quickActions.map((action) => (
+              <Button
+                key={action.title}
+                variant="outline"
+                className="h-auto flex-col gap-3 p-6 hover:shadow-md transition-all duration-200"
+                asChild
+              >
+                <Link href={action.href}>
+                  <div className={`rounded-lg p-2.5 ${action.color} text-white`}>
+                    <action.icon className="h-5 w-5" />
+                  </div>
+                  <span className="font-semibold">{action.title}</span>
+                </Link>
+              </Button>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Recent Activity placeholder */}
       <Card>

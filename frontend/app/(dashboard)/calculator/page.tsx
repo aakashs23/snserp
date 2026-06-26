@@ -8,6 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Separator } from "@/components/ui/separator"
+import { RoleGuard } from "@/components/role-guard"
 
 interface CalculatorResponse {
   withdrawal_loss_units: number
@@ -22,10 +23,106 @@ interface CalculatorResponse {
 }
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
-import { RoleGuard } from "@/components/role-guard"
 
 export default function CalculatorPage() {
-// ...
+  const [month, setMonth] = useState("")
+  const [customer, setCustomer] = useState("")
+
+  const [unitsGenerated, setUnitsGenerated] = useState("10000")
+  const [withdrawalLossPct, setWithdrawalLossPct] = useState("2")
+  const [injectionLossPct, setInjectionLossPct] = useState("1")
+  const [perUnitRate, setPerUnitRate] = useState("5.50")
+  const [openAccessCharges, setOpenAccessCharges] = useState("0")
+  const [manualRoundOff, setManualRoundOff] = useState("")
+
+  const [result, setResult] = useState<CalculatorResponse | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const isValid = () => {
+    const units = parseFloat(unitsGenerated)
+    const withdrawalLoss = parseFloat(withdrawalLossPct)
+    const injectionLoss = parseFloat(injectionLossPct)
+    const rate = parseFloat(perUnitRate)
+    const charges = parseFloat(openAccessCharges)
+
+    if (Number.isNaN(units) || units < 0) return false
+    if (Number.isNaN(withdrawalLoss) || withdrawalLoss < 0 || withdrawalLoss > 100) return false
+    if (Number.isNaN(injectionLoss) || injectionLoss < 0 || injectionLoss > 100) return false
+    if (Number.isNaN(rate) || rate < 0) return false
+    if (Number.isNaN(charges) || charges < 0) return false
+
+    return true
+  }
+
+  useEffect(() => {
+    if (!isValid()) {
+      setError("Please ensure all numeric inputs are valid. Percentages must be 0-100.")
+      return
+    }
+
+    setError(null)
+
+    const calculate = async () => {
+      setLoading(true)
+
+      try {
+        const supabase = createClient()
+        const {
+          data: { session },
+        } = await supabase.auth.getSession()
+
+        const body: Record<string, number> = {
+          units_generated: parseFloat(unitsGenerated),
+          withdrawal_loss_percent: parseFloat(withdrawalLossPct),
+          injection_loss_percent: parseFloat(injectionLossPct),
+          per_unit_rate: parseFloat(perUnitRate),
+          open_access_charges: parseFloat(openAccessCharges) || 0,
+        }
+
+        if (manualRoundOff && !Number.isNaN(parseFloat(manualRoundOff))) {
+          body.manual_round_off = parseFloat(manualRoundOff)
+        }
+
+        const res = await fetch(`${API_URL}/api/v1/calculator/calculate`, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${session?.access_token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(body),
+        })
+
+        if (res.ok) {
+          setResult(await res.json())
+        } else {
+          setError("Calculation failed on the server.")
+        }
+      } catch {
+        setError("Network error while calculating.")
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    const timeoutId = setTimeout(() => {
+      calculate()
+    }, 400)
+
+    return () => clearTimeout(timeoutId)
+  }, [unitsGenerated, withdrawalLossPct, injectionLossPct, perUnitRate, openAccessCharges, manualRoundOff])
+
+  const formatCurrency = (n: number) =>
+    new Intl.NumberFormat("en-IN", {
+      style: "currency",
+      currency: "INR",
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(n)
+
+  const formatUnits = (n: number) =>
+    new Intl.NumberFormat("en-IN", { maximumFractionDigits: 2 }).format(n)
+
   return (
     <RoleGuard allowedRoles={["admin", "accountant"]}>
       <div className="space-y-6 max-w-6xl mx-auto">

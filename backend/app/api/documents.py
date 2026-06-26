@@ -9,6 +9,7 @@ from app.database.session import get_db
 from app.models.documents import Document, DocumentAI
 from app.models.users import User
 from app.middleware.auth import get_current_user
+from app.middleware.rbac import RequireRole
 from app.schemas.documents import DocumentResponse, DocumentCombinedResponse
 from app.config.supabase import supabase
 from app.services.ai_pipeline import process_document_background
@@ -19,7 +20,7 @@ router = APIRouter()
 async def upload_document(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(RequireRole(["admin", "accountant", "employee"])),
     db: AsyncSession = Depends(get_db)
 ):
     # 1. Read file bytes
@@ -130,7 +131,7 @@ async def preview_document(
 @router.delete("/{document_id}")
 async def delete_document(
     document_id: uuid.UUID,
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(RequireRole(["admin", "accountant", "employee"])),
     db: AsyncSession = Depends(get_db)
 ):
     doc = await db.get(Document, document_id)

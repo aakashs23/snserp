@@ -29,3 +29,13 @@ class UserResponse(BaseModel):
     last_login: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
+
+class UserCreate(BaseModel):
+    full_name: str
+    email: str
+    password: str
+    role_id: UUID
+
+class UserUpdate(BaseModel):
+    role_id: Optional[UUID] = None
+    is_active: Optional[bool] = None

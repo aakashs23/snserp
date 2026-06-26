@@ -8,7 +8,7 @@ from datetime import datetime
 from app.database.session import get_db
 from app.models.activity import ActivityLog
 from app.models.users import User
-from app.middleware.auth import get_current_user
+from app.middleware.auth import get_current_user, require_roles
 
 router = APIRouter()
 
@@ -33,12 +33,10 @@ class ActivityLogPaginated(BaseModel):
 async def get_activity_logs(
     page: int = Query(1, ge=1),
     size: int = Query(20, ge=1, le=100),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_roles(["admin"])),
     db: AsyncSession = Depends(get_db)
 ):
     """Fetch paginated activity logs (Admin/Management feature)."""
-    # In a full app, check if current_user has 'admin' role. 
-    # For Phase 1 restoration, we'll allow all authenticated users or add role check later.
     
     offset = (page - 1) * size
     

@@ -57,11 +57,13 @@ const statusLabel: Record<string, string> = {
   overdue: "Overdue",
   cancelled: "Cancelled",
 }
+import { useAuth } from "@/components/providers/auth-provider"
 
 export default function InvoiceRegisterPage() {
   const [invoices, setInvoices] = useState<Invoice[]>([])
   const [loading, setLoading] = useState(true)
   const [statusFilter, setStatusFilter] = useState("all")
+  const { roleName } = useAuth()
 
   const getAuthHeaders = useCallback(async () => {
     const supabase = createClient()
@@ -130,12 +132,14 @@ export default function InvoiceRegisterPage() {
             View and manage all generated invoices.
           </p>
         </div>
-        <Button asChild>
-          <Link href="/invoices/generator">
-            <FilePlus className="h-4 w-4 mr-2" />
-            New Invoice
-          </Link>
-        </Button>
+        {(roleName === "admin" || roleName === "accountant") && (
+          <Button asChild>
+            <Link href="/invoices/generator">
+              <FilePlus className="h-4 w-4 mr-2" />
+              New Invoice
+            </Link>
+          </Button>
+        )}
       </div>
 
       {/* Filters */}

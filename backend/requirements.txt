@@ -23,6 +23,7 @@ python-multipart
 reportlab
 pandas
 openpyxl
+num2words
 
 # AI (shared with ai/ service)
 langchain

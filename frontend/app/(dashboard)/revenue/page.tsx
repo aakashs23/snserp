@@ -93,106 +93,111 @@ export default function RevenueDashboardPage() {
   }
 
   if (!data) return <div>Error loading data.</div>
+import { RoleGuard } from "@/components/role-guard"
 
+export default function RevenueDashboardPage() {
+// ...
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight font-[family-name:var(--font-heading)]">
-          Revenue Dashboard
-        </h1>
-        <p className="text-muted-foreground mt-1">
-          Financial overview and analytics for {new Date().getFullYear()}.
-        </p>
-      </div>
+    <RoleGuard allowedRoles={["admin", "accountant", "employee"]}>
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight font-[family-name:var(--font-heading)]">
+            Revenue Dashboard
+          </h1>
+          <p className="text-muted-foreground mt-1">
+            Financial overview and analytics for {new Date().getFullYear()}.
+          </p>
+        </div>
 
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Total Revenue YTD</CardTitle>
-            <BarChart3 className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{formatCurrency(data.total_revenue_ytd)}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Invoices Generated</CardTitle>
-            <FileText className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{data.total_invoices_generated}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Paid Invoices</CardTitle>
-            <CheckCircle2 className="h-4 w-4 text-green-600" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-green-600">{data.paid_invoices_count}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Pending Invoices</CardTitle>
-            <Clock className="h-4 w-4 text-amber-500" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-amber-500">{data.pending_invoices_count}</div>
-          </CardContent>
-        </Card>
-      </div>
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">Total Revenue YTD</CardTitle>
+              <BarChart3 className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{formatCurrency(data.total_revenue_ytd)}</div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">Invoices Generated</CardTitle>
+              <FileText className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{data.total_invoices_generated}</div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">Paid Invoices</CardTitle>
+              <CheckCircle2 className="h-4 w-4 text-green-600" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-green-600">{data.paid_invoices_count}</div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">Pending Invoices</CardTitle>
+              <Clock className="h-4 w-4 text-amber-500" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-amber-500">{data.pending_invoices_count}</div>
+            </CardContent>
+          </Card>
+        </div>
 
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
-        <Card className="lg:col-span-4">
-          <CardHeader>
-            <CardTitle>Monthly Revenue Trend</CardTitle>
-            <CardDescription>Gross revenue grouped by month of supply.</CardDescription>
-          </CardHeader>
-          <CardContent className="pl-2">
-            <div className="h-[350px] w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={data.monthly_trend} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                  <XAxis dataKey="month" axisLine={false} tickLine={false} tickMargin={10} />
-                  <YAxis axisLine={false} tickLine={false} tickFormatter={(value) => `₹${value / 1000}k`} />
-                  <RechartsTooltip 
-                    formatter={(value: any) => formatCurrency(Number(value))}
-                    cursor={{ stroke: 'var(--border)', strokeWidth: 1 }}
-                    contentStyle={{ borderRadius: '8px', border: '1px solid var(--border)' }}
-                  />
-                  <Line type="monotone" dataKey="revenue" stroke="hsl(var(--primary))" strokeWidth={3} dot={{ r: 4 }} activeDot={{ r: 6 }} />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-          </CardContent>
-        </Card>
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
+          <Card className="lg:col-span-4">
+            <CardHeader>
+              <CardTitle>Monthly Revenue Trend</CardTitle>
+              <CardDescription>Gross revenue grouped by month of supply.</CardDescription>
+            </CardHeader>
+            <CardContent className="pl-2">
+              <div className="h-[350px] w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={data.monthly_trend} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                    <XAxis dataKey="month" axisLine={false} tickLine={false} tickMargin={10} />
+                    <YAxis axisLine={false} tickLine={false} tickFormatter={(value) => `₹${value / 1000}k`} />
+                    <RechartsTooltip 
+                      formatter={(value: any) => formatCurrency(Number(value))}
+                      cursor={{ stroke: 'var(--border)', strokeWidth: 1 }}
+                      contentStyle={{ borderRadius: '8px', border: '1px solid var(--border)' }}
+                    />
+                    <Line type="monotone" dataKey="revenue" stroke="hsl(var(--primary))" strokeWidth={3} dot={{ r: 4 }} activeDot={{ r: 6 }} />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            </CardContent>
+          </Card>
 
-        <Card className="lg:col-span-3">
-          <CardHeader>
-            <CardTitle>Top Customers</CardTitle>
-            <CardDescription>Highest revenue generating customers.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="h-[350px] w-full">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={data.top_customers} layout="vertical" margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
-                  <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} />
-                  <XAxis type="number" axisLine={false} tickLine={false} tickFormatter={(value) => `₹${value / 1000}k`} />
-                  <YAxis dataKey="customer_name" type="category" axisLine={false} tickLine={false} width={100} />
-                  <RechartsTooltip 
-                    formatter={(value: any) => formatCurrency(Number(value))}
-                    cursor={{ fill: 'hsl(var(--accent)/0.1)' }}
-                    contentStyle={{ borderRadius: '8px', border: '1px solid var(--border)' }}
-                  />
-                  <Bar dataKey="revenue" fill="hsl(var(--accent))" radius={[0, 4, 4, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </CardContent>
-        </Card>
+          <Card className="lg:col-span-3">
+            <CardHeader>
+              <CardTitle>Top Customers</CardTitle>
+              <CardDescription>Highest revenue generating customers.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="h-[350px] w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={data.top_customers} layout="vertical" margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+                    <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} />
+                    <XAxis type="number" axisLine={false} tickLine={false} tickFormatter={(value) => `₹${value / 1000}k`} />
+                    <YAxis dataKey="customer_name" type="category" axisLine={false} tickLine={false} width={100} />
+                    <RechartsTooltip 
+                      formatter={(value: any) => formatCurrency(Number(value))}
+                      cursor={{ fill: 'hsl(var(--accent)/0.1)' }}
+                      contentStyle={{ borderRadius: '8px', border: '1px solid var(--border)' }}
+                    />
+                    <Bar dataKey="revenue" fill="hsl(var(--accent))" radius={[0, 4, 4, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
       </div>
-    </div>
+    </RoleGuard>
   )
 }

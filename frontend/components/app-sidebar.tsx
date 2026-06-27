@@ -13,6 +13,7 @@ import {
   Settings,
   LogOut,
   Zap,
+  Trash2,
 } from "lucide-react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
@@ -45,6 +46,7 @@ const navMain = [
     label: "Documents",
     items: [
       { title: "All Documents", url: "/documents", icon: FileText },
+      { title: "Trash Bin", url: "/trash", icon: Trash2 },
     ],
   },
   {
@@ -83,8 +85,8 @@ export function AppSidebar() {
           return roleName === "admin"
         }
         // Admin, Employee
-        if (item.title === "Invoice Generator" || item.title === "Loans" || item.title === "Monthly Calculator") {
-          return roleName === "admin" || roleName === "employee"
+        if (item.title === "Invoice Generator" || item.title === "Loans" || item.title === "Monthly Calculator" || item.title === "Trash Bin") {
+            return roleName === "admin" || roleName === "employee"
         }
         // Admin, Employee (Legacy group if needed)
         if (item.title === "Revenue Dashboard") {

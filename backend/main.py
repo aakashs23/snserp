@@ -26,6 +26,9 @@ from app.api.loans import router as loans_router
 from app.api.users import router as users_router
 
 
+from app.services.cleanup import delete_expired_trash_loop
+import asyncio
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan: seed default roles and ensure storage buckets on startup."""
@@ -43,7 +46,15 @@ async def lifespan(app: FastAPI):
             ]
             session.add_all(roles)
             await session.commit()
+            
+    # Start background tasks
+    cleanup_task = asyncio.create_task(delete_expired_trash_loop())
+    
     yield
+    
+    # Cancel background tasks on shutdown
+    cleanup_task.cancel()
+
 
 
 app = FastAPI(

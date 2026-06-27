@@ -76,9 +76,9 @@ class Document(UUIDPrimaryKeyMixin, Base):
         "User", foreign_keys=[uploaded_by], back_populates="documents"
     )
     metadata_info = relationship(
-        "DocumentMetadata", back_populates="document", uselist=False
+        "DocumentMetadata", back_populates="document", uselist=False, cascade="all, delete-orphan"
     )
-    ai_info = relationship("DocumentAI", back_populates="document", uselist=False)
+    ai_info = relationship("DocumentAI", back_populates="document", uselist=False, cascade="all, delete-orphan")
     shared_with = relationship(
         "User",
         secondary=document_shares,

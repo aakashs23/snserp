@@ -145,7 +145,7 @@ export default function LoansPage() {
         if (err.detail) {
           if (Array.isArray(err.detail)) {
             errorMessage = err.detail
-              .map((entry: any) => `${entry.loc?.join(".")} - ${entry.msg}`)
+              .map((entry: {loc?: string[], msg: string}) => `${entry.loc?.join(".")} - ${entry.msg}`)
               .join(", ")
           } else if (typeof err.detail === "string") {
             errorMessage = err.detail

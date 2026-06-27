@@ -107,6 +107,7 @@ export default function UsersPage() {
     const formData = new FormData(e.currentTarget)
     
     // Grab values directly from form
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const body: Record<string, any> = Object.fromEntries(formData.entries())
 
     // Convert switch value to boolean if editing
@@ -132,7 +133,7 @@ export default function UsersPage() {
         let errorMessage = "Operation failed."
         if (err.detail) {
           if (Array.isArray(err.detail)) {
-            errorMessage = err.detail.map((e: any) => `${e.loc?.join('.')} - ${e.msg}`).join(", ")
+            errorMessage = err.detail.map((e: {loc?: string[], msg: string}) => `${e.loc?.join('.')} - ${e.msg}`).join(", ")
           } else if (typeof err.detail === "string") {
             errorMessage = err.detail
           }

@@ -7,7 +7,7 @@ import { createClient } from "@/utils/supabase/client"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import {
   Table,
   TableBody,
@@ -109,7 +109,8 @@ export default function LoansPage() {
   }, [getAuthHeaders])
 
   useEffect(() => {
-    fetchData()
+    const t = setTimeout(() => fetchData(), 0)
+    return () => clearTimeout(t)
   }, [fetchData])
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -376,7 +377,7 @@ export default function LoansPage() {
                 ) : loans.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={7} className="text-center py-12 text-muted-foreground">
-                      No loans found. Click "Add Loan" to get started.
+                      No loans found. Click &quot;Add Loan&quot; to get started.
                     </TableCell>
                   </TableRow>
                 ) : (

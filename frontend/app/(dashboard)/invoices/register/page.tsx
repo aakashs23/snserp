@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
-import { FilePlus, Eye, Download } from "lucide-react"
+import { FilePlus, Eye } from "lucide-react"
 import Link from "next/link"
 import { toast } from "sonner"
 import { createClient } from "@/utils/supabase/client"
@@ -91,7 +91,8 @@ export default function InvoiceRegisterPage() {
   }, [statusFilter, getAuthHeaders])
 
   useEffect(() => {
-    fetchInvoices()
+    const t = setTimeout(() => fetchInvoices(), 0)
+    return () => clearTimeout(t)
   }, [fetchInvoices])
 
   const handleViewPDF = async (invoiceId: string) => {

@@ -7,7 +7,7 @@ import {
   ClipboardList,
   BarChart3,
   Calculator,
-  Bot,
+  
   Activity,
   Users,
   Settings,
@@ -30,7 +30,6 @@ import {
   SidebarMenuItem,
   SidebarRail,
 } from "@/components/ui/sidebar"
-import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { signout } from "@/app/actions/auth"
 
 import { useAuth } from "@/components/providers/auth-provider"

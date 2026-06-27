@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
-import { BarChart3, TrendingUp, Users, FileText, CheckCircle2, Clock } from "lucide-react"
+import { BarChart3, FileText, CheckCircle2, Clock } from "lucide-react"
 import { toast } from "sonner"
 import { createClient } from "@/utils/supabase/client"
 import {
@@ -72,7 +72,8 @@ export default function RevenueDashboardPage() {
   }, [])
 
   useEffect(() => {
-    fetchAnalytics()
+    const t = setTimeout(() => fetchAnalytics(), 0)
+    return () => clearTimeout(t)
   }, [fetchAnalytics])
 
   const formatCurrency = (n: number) => 
@@ -168,7 +169,7 @@ export default function RevenueDashboardPage() {
                     <XAxis dataKey="month" axisLine={false} tickLine={false} tickMargin={10} />
                     <YAxis axisLine={false} tickLine={false} tickFormatter={(value) => `₹${value / 1000}k`} />
                     <RechartsTooltip 
-                      formatter={(value: any) => formatCurrency(Number(value))}
+                      formatter={(value: unknown) => formatCurrency(Number(value))}
                       cursor={{ stroke: 'var(--border)', strokeWidth: 1 }}
                       contentStyle={{ borderRadius: '8px', border: '1px solid var(--border)' }}
                     />
@@ -192,7 +193,7 @@ export default function RevenueDashboardPage() {
                     <XAxis type="number" axisLine={false} tickLine={false} tickFormatter={(value) => `₹${value / 1000}k`} />
                     <YAxis dataKey="customer_name" type="category" axisLine={false} tickLine={false} width={100} />
                     <RechartsTooltip 
-                      formatter={(value: any) => formatCurrency(Number(value))}
+                      formatter={(value: unknown) => formatCurrency(Number(value))}
                       cursor={{ fill: 'hsl(var(--accent)/0.1)' }}
                       contentStyle={{ borderRadius: '8px', border: '1px solid var(--border)' }}
                     />

@@ -90,7 +90,7 @@ export default function UsersPage() {
       } else {
         toast.error("Failed to load users data")
       }
-    } catch (err) {
+    } catch {
       toast.error("Network error fetching users")
     } finally {
       setLoading(false)
@@ -98,7 +98,8 @@ export default function UsersPage() {
   }, [getAuthHeaders])
 
   useEffect(() => {
-    fetchData()
+    const t = setTimeout(() => fetchData(), 0)
+    return () => clearTimeout(t)
   }, [fetchData])
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -254,7 +255,7 @@ export default function UsersPage() {
                       <div className="space-y-0.5">
                         <Label className="text-base">Active Account</Label>
                         <p className="text-sm text-muted-foreground">
-                          Turn off to disable the user's access.
+                          Turn off to disable the user&apos;s access.
                         </p>
                       </div>
                       <Switch

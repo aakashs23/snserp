@@ -5,6 +5,7 @@ import { UploadCloud, File, Search, Trash2, Eye, Download, FileText, CheckCircle
 import { toast } from "sonner"
 import { createClient } from "@/utils/supabase/client"
 import { useAuth } from "@/components/providers/auth-provider"
+import { DocumentPermissionsDialog } from "@/components/document-permissions-dialog"
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -45,6 +46,7 @@ export default function DocumentsPage() {
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState("")
   const [uploading, setUploading] = useState(false)
+  const [permissionsDocId, setPermissionsDocId] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const getAuthHeaders = useCallback(async () => {
@@ -78,7 +80,8 @@ export default function DocumentsPage() {
   }, [search, getAuthHeaders])
 
   useEffect(() => {
-    fetchDocuments()
+    const t = setTimeout(() => fetchDocuments(), 0)
+    return () => clearTimeout(t)
   }, [fetchDocuments])
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -109,6 +112,22 @@ export default function DocumentsPage() {
     } finally {
       setUploading(false)
       if (fileInputRef.current) fileInputRef.current.value = ""
+    }
+  }
+
+  const handleDownload = async (id: string) => {
+    try {
+      const headers = await getAuthHeaders()
+      const res = await fetch(`${API_URL}/api/v1/documents/${id}/download`, { headers })
+      if (res.ok) {
+        const data = await res.json()
+        window.open(data.url, "_blank")
+      } else {
+        const err = await res.json()
+        toast.error(err.detail || "Failed to get download link")
+      }
+    } catch {
+      toast.error("Network error")
     }
   }
 
@@ -291,22 +310,11 @@ export default function DocumentsPage() {
                         <Button variant="ghost" size="icon" onClick={() => handlePreview(doc.id)} title="Preview">
                           <Eye className="h-4 w-4" />
                         </Button>
+                        <Button variant="ghost" size="icon" onClick={() => handleDownload(doc.id)} title="Download">
+                          <Download className="h-4 w-4" />
+                        </Button>
                         {roleName === "admin" && (
-                          <Button variant="ghost" size="icon" onClick={() => {
-                            const userId = window.prompt("Enter the User ID to share this document with:")
-                            if (userId) {
-                              getAuthHeaders().then(headers => {
-                                fetch(`${API_URL}/api/v1/documents/${doc.id}/share`, {
-                                  method: "POST",
-                                  headers: { ...headers, "Content-Type": "application/json" },
-                                  body: JSON.stringify({ user_ids: [userId] })
-                                }).then(res => {
-                                  if (res.ok) toast.success("Document shared successfully")
-                                  else toast.error("Failed to share document")
-                                })
-                              })
-                            }
-                          }} title="Share">
+                          <Button variant="ghost" size="icon" onClick={() => setPermissionsDocId(doc.id)} title="Manage Permissions">
                             <Share2 className="h-4 w-4 text-blue-500" />
                           </Button>
                         )}
@@ -324,6 +332,11 @@ export default function DocumentsPage() {
           </Table>
         </CardContent>
       </Card>
+      <DocumentPermissionsDialog
+        documentId={permissionsDocId}
+        open={!!permissionsDocId}
+        onOpenChange={(open) => !open && setPermissionsDocId(null)}
+      />
     </div>
   )
 }

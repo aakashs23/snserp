@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { Calculator as CalculatorIcon, ArrowRight, Loader2, CheckCircle2 } from "lucide-react"
 import { createClient } from "@/utils/supabase/client"
 
@@ -39,7 +39,7 @@ export default function CalculatorPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const isValid = () => {
+  const isValid = useCallback(() => {
     const units = parseFloat(unitsGenerated)
     const withdrawalLoss = parseFloat(withdrawalLossPct)
     const injectionLoss = parseFloat(injectionLossPct)
@@ -53,15 +53,10 @@ export default function CalculatorPage() {
     if (Number.isNaN(charges) || charges < 0) return false
 
     return true
-  }
+  }, [unitsGenerated, withdrawalLossPct, injectionLossPct, perUnitRate, openAccessCharges])
 
   useEffect(() => {
-    if (!isValid()) {
-      setError("Please ensure all numeric inputs are valid. Percentages must be 0-100.")
-      return
-    }
 
-    setError(null)
 
     const calculate = async () => {
       setLoading(true)
@@ -106,11 +101,16 @@ export default function CalculatorPage() {
     }
 
     const timeoutId = setTimeout(() => {
+      if (!isValid()) {
+        setError("Please ensure all numeric inputs are valid. Percentages must be 0-100.")
+        return
+      }
+      setError(null)
       calculate()
     }, 400)
 
     return () => clearTimeout(timeoutId)
-  }, [unitsGenerated, withdrawalLossPct, injectionLossPct, perUnitRate, openAccessCharges, manualRoundOff])
+  }, [unitsGenerated, withdrawalLossPct, injectionLossPct, perUnitRate, openAccessCharges, manualRoundOff, isValid])
 
   const formatCurrency = (n: number) =>
     new Intl.NumberFormat("en-IN", {

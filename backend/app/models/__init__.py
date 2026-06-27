@@ -9,6 +9,7 @@ from app.models.users import Role, Permission, role_permissions, User
 from app.models.customers import Customer
 from app.models.invoices import Invoice
 from app.models.documents import Document, DocumentMetadata, DocumentAI
+from app.models.document_permissions import DocumentPermission
 from app.models.activity import ActivityLog
 from app.models.chat import AIChatSession, AIChatMessage
 from app.models.notifications import Notification
@@ -31,6 +32,7 @@ __all__ = [
     "Document",
     "DocumentMetadata",
     "DocumentAI",
+    "DocumentPermission",
     # Activity & Chat
     "ActivityLog",
     "AIChatSession",

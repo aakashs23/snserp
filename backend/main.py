@@ -17,6 +17,7 @@ from app.api.auth import router as auth_router
 from app.api.customers import router as customers_router
 from app.api.invoices import router as invoices_router
 from app.api.documents import router as documents_router
+from app.api.document_permissions import router as document_permissions_router
 from app.api.analytics import router as analytics_router
 from app.api.chat import router as chat_router
 from app.api.calculator import router as calculator_router
@@ -69,6 +70,7 @@ app.include_router(auth_router, prefix="/api/v1/auth", tags=["Auth"])
 app.include_router(customers_router, prefix="/api/v1/customers", tags=["Customers"])
 app.include_router(invoices_router, prefix="/api/v1/invoices", tags=["Invoices"])
 app.include_router(documents_router, prefix="/api/v1/documents", tags=["Documents"])
+app.include_router(document_permissions_router, prefix="/api/v1/documents", tags=["Document Permissions"])
 app.include_router(analytics_router, prefix="/api/v1/analytics", tags=["Analytics"])
 app.include_router(chat_router, prefix="/api/v1/chat", tags=["AI Chat"])
 app.include_router(calculator_router, prefix="/api/v1/calculator", tags=["Calculator"])

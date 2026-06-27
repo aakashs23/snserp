@@ -86,7 +86,8 @@ export default function CustomersPage() {
   }, [getAuthHeaders, search])
 
   useEffect(() => {
-    fetchCustomers()
+    const t = setTimeout(() => fetchCustomers(), 0)
+    return () => clearTimeout(t)
   }, [fetchCustomers])
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {

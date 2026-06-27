@@ -8,6 +8,7 @@ from sqlalchemy.orm import selectinload
 from app.database.session import get_db
 from app.models.documents import Document, DocumentAI
 from app.models.users import User
+from app.models.document_permissions import DocumentPermission
 from app.middleware.auth import get_current_user
 from app.middleware.rbac import RequireRole
 from app.schemas.documents import DocumentResponse, DocumentCombinedResponse, ShareRequest
@@ -107,7 +108,11 @@ async def list_documents(
     ).where(Document.is_deleted == False)
 
     if current_user.role.name in ["viewer", "accountant"]:
-        query = query.where(Document.status == "approved").where(Document.shared_with.any(User.id == current_user.id))
+        query = query.join(DocumentPermission, Document.id == DocumentPermission.document_id).where(
+            DocumentPermission.user_id == current_user.id,
+            DocumentPermission.can_view == True,
+            Document.status == "approved"
+        )
     
     if search:
         query = query.where(Document.original_name.ilike(f"%{search}%"))
@@ -125,25 +130,59 @@ async def preview_document(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    stmt = select(Document).options(selectinload(Document.shared_with)).where(Document.id == document_id)
-    res = await db.execute(stmt)
-    doc = res.scalar_one_or_none()
+    doc = await db.get(Document, document_id)
     
     if not doc or doc.is_deleted:
         raise HTTPException(status_code=404, detail="Document not found")
         
     if current_user.role.name in ["viewer", "accountant"]:
-        if doc.status != "approved" or not any(
-            shared_user.id == current_user.id for shared_user in doc.shared_with
-        ):
+        if doc.status != "approved":
             raise HTTPException(status_code=403, detail="Access denied")
+            
+        stmt = select(DocumentPermission).where(
+            DocumentPermission.document_id == document_id,
+            DocumentPermission.user_id == current_user.id,
+            DocumentPermission.can_view == True
+        )
+        res = await db.execute(stmt)
+        if not res.scalar_one_or_none():
+            raise HTTPException(status_code=403, detail="You do not have permission to access this document.")
         
-    # Generate signed URL valid for 1 hour
     try:
         res = supabase.storage.from_("documents").create_signed_url(doc.storage_path, 3600)
         return {"url": res.get("signedURL")}
     except Exception as e:
         raise HTTPException(status_code=500, detail="Failed to generate preview URL")
+
+@router.get("/{document_id}/download")
+async def download_document(
+    document_id: uuid.UUID,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    doc = await db.get(Document, document_id)
+    
+    if not doc or doc.is_deleted:
+        raise HTTPException(status_code=404, detail="Document not found")
+        
+    if current_user.role.name in ["viewer", "accountant"]:
+        if doc.status != "approved":
+            raise HTTPException(status_code=403, detail="Access denied")
+            
+        stmt = select(DocumentPermission).where(
+            DocumentPermission.document_id == document_id,
+            DocumentPermission.user_id == current_user.id,
+            DocumentPermission.can_download == True
+        )
+        res = await db.execute(stmt)
+        if not res.scalar_one_or_none():
+            raise HTTPException(status_code=403, detail="You do not have permission to download this document.")
+        
+    try:
+        res = supabase.storage.from_("documents").create_signed_url(doc.storage_path, 3600, options={"download": doc.original_name})
+        return {"url": res.get("signedURL")}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail="Failed to generate download URL")
 
 @router.delete("/{document_id}")
 async def delete_document(
@@ -159,25 +198,3 @@ async def delete_document(
     await db.commit()
     return {"deleted": True}
 
-@router.post("/{document_id}/share")
-async def share_document(
-    document_id: uuid.UUID,
-    payload: ShareRequest,
-    current_user: User = Depends(RequireRole(["admin"])),
-    db: AsyncSession = Depends(get_db)
-):
-    stmt = select(Document).options(selectinload(Document.shared_with)).where(Document.id == document_id)
-    res = await db.execute(stmt)
-    doc = res.scalar_one_or_none()
-    if not doc or doc.is_deleted:
-        raise HTTPException(status_code=404, detail="Document not found")
-        
-    # Get the users to share with
-    stmt_users = select(User).where(User.id.in_(payload.user_ids))
-    res_users = await db.execute(stmt_users)
-    users = res_users.scalars().all()
-    
-    # Replace the sharing list or append? We'll replace it to be simple.
-    doc.shared_with = users
-    await db.commit()
-    return {"status": "success", "shared_with": [str(u.id) for u in doc.shared_with]}

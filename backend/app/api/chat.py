@@ -95,7 +95,12 @@ async def _hybrid_search(db: AsyncSession, current_user: User, query: str):
     # 0. Get allowed document IDs
     doc_query = select(Document.id).where(Document.is_deleted == False)
     if current_user.role.name in ["viewer", "accountant"]:
-        doc_query = doc_query.where(Document.status == "approved").where(Document.shared_with.any(User.id == current_user.id))
+        from app.models.document_permissions import DocumentPermission
+        doc_query = doc_query.join(DocumentPermission, Document.id == DocumentPermission.document_id).where(
+            DocumentPermission.user_id == current_user.id,
+            DocumentPermission.can_view == True,
+            Document.status == "approved"
+        )
     
     permitted_docs_res = await db.execute(doc_query)
     permitted_doc_ids = [str(doc_id) for doc_id in permitted_docs_res.scalars().all()]

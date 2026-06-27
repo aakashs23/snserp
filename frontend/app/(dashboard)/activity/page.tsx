@@ -69,7 +69,8 @@ export default function ActivityLogsPage() {
   }, [])
 
   useEffect(() => {
-    fetchLogs(page)
+    const t = setTimeout(() => fetchLogs(page), 0)
+    return () => clearTimeout(t)
   }, [page, fetchLogs])
 
   const getActionIcon = (action: string) => {

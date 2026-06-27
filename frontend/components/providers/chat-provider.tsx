@@ -1,6 +1,6 @@
 "use client"
 
-import React, { createContext, useContext, useState, useEffect, useCallback } from "react"
+import React, { createContext, useContext, useState, useCallback } from "react"
 import { createClient } from "@/utils/supabase/client"
 import { toast } from "sonner"
 
@@ -56,7 +56,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
       })
       if (res.ok) {
         const data = await res.json()
-        const mapped: ChatMessage[] = data.map((msg: any) => ({
+        const mapped: ChatMessage[] = data.map((msg: { id: string; role: string; message: string }) => ({
           id: msg.id,
           role: msg.role as "user" | "ai",
           content: msg.message,
@@ -65,7 +65,7 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
         setMessages(mapped)
         setSessionId(id)
       }
-    } catch (e) {
+    } catch {
       toast.error("Failed to load chat history")
     } finally {
       setIsLoading(false)

@@ -22,3 +22,11 @@ class RevenueDashboardResponse(BaseModel):
     paid_invoices_count: int
     monthly_trend: List[MonthlyRevenueItem]
     top_customers: List[TopCustomerItem]
+
+class DashboardStatsResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    monthly_revenue: Decimal
+    total_invoices: int
+    total_documents: int
+    active_customers: int
+    active_loans: int

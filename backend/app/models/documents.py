@@ -103,6 +103,10 @@ class DocumentMetadata(UUIDPrimaryKeyMixin, Base):
     confidence_score: Mapped[float | None] = mapped_column(
         Numeric(5, 2), nullable=True
     )
+    invoice_number: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    customer_details: Mapped[str | None] = mapped_column(Text, nullable=True)
+    amount: Mapped[float | None] = mapped_column(Numeric(12, 2), nullable=True)
+    gst_number: Mapped[str | None] = mapped_column(String(50), nullable=True)
 
     # Relationships
     document = relationship("Document", back_populates="metadata_info")

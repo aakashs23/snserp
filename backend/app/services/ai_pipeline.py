@@ -122,6 +122,10 @@ async def process_document_background(document_id: UUID, file_bytes: bytes, file
         - description (string): A 1-2 sentence summary.
         - keywords (list of strings): 3-5 relevant keywords.
         - ai_category (string): Choose ONE from: Invoice, Purchase Order, Agreement, Customer Document, Bank Statement, Government Letter, Receipt, Miscellaneous.
+        - invoice_number (string or null): Extract the invoice number if present, otherwise null.
+        - customer_details (string or null): Extract customer name and address if present, otherwise null.
+        - amount (number or null): Extract the total amount or net amount as a number if present, otherwise null.
+        - gst_number (string or null): Extract the GSTIN or GST number if present, otherwise null.
         
         Document Text:
         {extracted_text[:4000]}  # Limit text to avoid context window issues
@@ -172,7 +176,11 @@ async def process_document_background(document_id: UUID, file_bytes: bytes, file
                 document_id=document_id,
                 title=metadata.get("title", file_name),
                 description=metadata.get("description", ""),
-                keywords=metadata.get("keywords", [])
+                keywords=metadata.get("keywords", []),
+                invoice_number=metadata.get("invoice_number"),
+                customer_details=metadata.get("customer_details"),
+                amount=metadata.get("amount") if isinstance(metadata.get("amount"), (int, float)) else None,
+                gst_number=metadata.get("gst_number")
             )
             session.add(doc_meta)
             

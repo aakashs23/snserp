@@ -90,3 +90,80 @@ async def get_revenue_dashboard(
         monthly_trend=monthly_trend,
         top_customers=top_customers
     )
+
+from app.models.documents import Document
+from app.models.loans import Loan
+from app.models.activity import ActivityLog
+from app.schemas.analytics import DashboardStatsResponse
+from app.api.activity import ActivityLogResponse
+
+@router.get("/dashboard/stats", response_model=DashboardStatsResponse)
+async def get_dashboard_stats(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    import datetime
+    current_month = datetime.date.today().month
+    current_year = datetime.date.today().year
+
+    # 1. Monthly Revenue
+    rev_query = select(func.sum(Invoice.net_amount)).where(
+        func.extract('month', Invoice.invoice_date) == current_month,
+        func.extract('year', Invoice.invoice_date) == current_year,
+        Invoice.status != 'cancelled'
+    )
+    rev_result = await db.execute(rev_query)
+    monthly_rev = rev_result.scalar_one_or_none() or Decimal('0.00')
+
+    # 2. Total Invoices
+    inv_query = select(func.count(Invoice.id))
+    inv_result = await db.execute(inv_query)
+    total_invoices = inv_result.scalar_one_or_none() or 0
+
+    # 3. Total Documents
+    doc_query = select(func.count(Document.id)).where(Document.is_deleted == False)
+    doc_result = await db.execute(doc_query)
+    total_documents = doc_result.scalar_one_or_none() or 0
+
+    # 4. Active Customers
+    cust_query = select(func.count(Customer.id))
+    cust_result = await db.execute(cust_query)
+    active_customers = cust_result.scalar_one_or_none() or 0
+    
+    # 5. Active Loans
+    loan_query = select(func.count(Loan.id)).where(Loan.status == 'active')
+    loan_result = await db.execute(loan_query)
+    active_loans = loan_result.scalar_one_or_none() or 0
+
+    return DashboardStatsResponse(
+        monthly_revenue=monthly_rev,
+        total_invoices=total_invoices,
+        total_documents=total_documents,
+        active_customers=active_customers,
+        active_loans=active_loans
+    )
+
+@router.get("/dashboard/activity", response_model=list[ActivityLogResponse])
+async def get_dashboard_activity(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    from sqlalchemy import desc
+    stmt = (
+        select(ActivityLog, User.full_name, User.email)
+        .outerjoin(User, ActivityLog.user_id == User.id)
+        .order_by(desc(ActivityLog.created_at))
+        .limit(5)
+    )
+    result = await db.execute(stmt)
+    rows = result.all()
+    
+    activities = []
+    for row in rows:
+        log_obj = row[0]
+        # Attach user properties temporarily for Pydantic
+        log_obj.user_name = row[1]
+        log_obj.user_email = row[2]
+        activities.append(log_obj)
+        
+    return activities

@@ -14,6 +14,7 @@ from app.models.customers import Customer
 from app.models.users import User
 from app.repositories.base import BaseRepository
 from app.schemas.customers import CustomerCreate, CustomerResponse, CustomerUpdate
+from app.services.activity_service import log_activity
 
 router = APIRouter()
 
@@ -66,6 +67,16 @@ async def create_customer(
     """Create a new customer. Requires authentication."""
     repo = BaseRepository(Customer, db)
     customer = await repo.create(body.model_dump())
+    
+    await log_activity(
+        db=db,
+        user_id=_current_user.id,
+        action="Create",
+        module="Customers",
+        object_affected=f"Customer ID: {customer.id}"
+    )
+    await db.commit()
+    
     return customer
 
 
@@ -85,6 +96,16 @@ async def update_customer(
             detail="Customer not found",
         )
     updated = await repo.update(customer, body.model_dump(exclude_unset=True))
+    
+    await log_activity(
+        db=db,
+        user_id=_current_user.id,
+        action="Update",
+        module="Customers",
+        object_affected=f"Customer ID: {customer.id}"
+    )
+    await db.commit()
+    
     return updated
 
 
@@ -95,6 +116,7 @@ async def update_customer(
 async def delete_customer(
     customer_id: UUID,
     db: AsyncSession = Depends(get_db),
+    _current_user: User = Depends(RequireRole(["admin"])),
 ) -> dict:
     """Delete a customer. Requires admin role."""
     repo = BaseRepository(Customer, db)
@@ -104,4 +126,14 @@ async def delete_customer(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Customer not found",
         )
+        
+    await log_activity(
+        db=db,
+        user_id=_current_user.id,
+        action="Delete",
+        module="Customers",
+        object_affected=f"Customer ID: {customer_id}"
+    )
+    await db.commit()
+    
     return {"deleted": True}

@@ -4,6 +4,7 @@ from sqlalchemy import select, desc, func
 from pydantic import BaseModel, ConfigDict
 from typing import List, Optional
 from datetime import datetime
+from uuid import UUID
 
 from app.database.session import get_db
 from app.models.activity import ActivityLog
@@ -16,12 +17,17 @@ class ActivityLogResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     
     id: int
-    action: str
-    entity_type: Optional[str]
-    ip_address: Optional[str]
-    created_at: datetime
+    user_id: Optional[UUID] = None
     user_name: Optional[str] = None
     user_email: Optional[str] = None
+    action: str
+    entity_type: Optional[str] = None
+    entity_id: Optional[UUID] = None
+    module: Optional[str] = None
+    object_affected: Optional[str] = None
+    ip_address: Optional[str] = None
+    user_agent: Optional[str] = None
+    created_at: datetime
 
 class ActivityLogPaginated(BaseModel):
     items: List[ActivityLogResponse]

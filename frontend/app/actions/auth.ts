@@ -29,6 +29,12 @@ export async function login(formData: FormData) {
           'Authorization': `Bearer ${authData.session.access_token}`
         }
       })
+      await fetch(`${API_URL}/api/v1/auth/log-login`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${authData.session.access_token}`
+        }
+      })
     } catch (e) {
       console.error("Failed to update last login", e)
     }
@@ -63,6 +69,23 @@ export async function signup(formData: FormData) {
 
 export async function signout() {
   const supabase = await createClient()
+  
+  // Log logout before signing out locally
+  const { data: { session } } = await supabase.auth.getSession()
+  if (session) {
+    const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000"
+    try {
+      await fetch(`${API_URL}/api/v1/auth/log-logout`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${session.access_token}`
+        }
+      })
+    } catch (e) {
+      console.error("Failed to log logout", e)
+    }
+  }
+
   await supabase.auth.signOut()
   revalidatePath('/', 'layout')
   redirect('/login')

@@ -1,3 +1,4 @@
+
 from pydantic import BaseModel, ConfigDict
 from decimal import Decimal
 from typing import List, Optional
@@ -14,6 +15,18 @@ class TopCustomerItem(BaseModel):
     customer_name: str
     revenue: Decimal
 
+class InvoiceStatusItem(BaseModel):
+    name: str
+    value: int
+
+class DocumentUploadItem(BaseModel):
+    month: str
+    count: int
+
+class RecentRevenueItem(BaseModel):
+    date: str
+    revenue: Decimal
+
 class RevenueDashboardResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     total_revenue_ytd: Decimal
@@ -26,7 +39,18 @@ class RevenueDashboardResponse(BaseModel):
 class DashboardStatsResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     monthly_revenue: Decimal
-    total_invoices: int
+    yearly_revenue: Decimal
+    total_customers: int
     total_documents: int
-    active_customers: int
+    total_invoices: int
+    paid_invoices: int
+    pending_invoices: int
+    outstanding_amount: Decimal
     active_loans: int
+    recent_uploads: int
+
+    revenue_trend: List[MonthlyRevenueItem]
+    invoice_status: List[InvoiceStatusItem]
+    revenue_by_customer: List[TopCustomerItem]
+    documents_uploaded_per_month: List[DocumentUploadItem]
+    recent_revenue_trend: List[RecentRevenueItem]

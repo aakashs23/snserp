@@ -13,6 +13,7 @@ from app.models.loans import Loan
 from app.models.users import User
 from app.repositories.base import BaseRepository
 from app.schemas.loans import LoanCreate, LoanResponse, LoanUpdate
+from app.services.activity_service import log_activity
 
 router = APIRouter()
 
@@ -112,7 +113,18 @@ async def create_loan(
     _current_user: User = Depends(RequireRole(["admin", "employee"])),
 ) -> LoanResponse:
     repo = BaseRepository(Loan, db)
-    return await repo.create(body.model_dump())
+    loan = await repo.create(body.model_dump())
+    
+    await log_activity(
+        db=db,
+        user_id=_current_user.id,
+        action="Create",
+        module="Loans",
+        object_affected=f"Loan ID: {loan.id}"
+    )
+    await db.commit()
+    
+    return loan
 
 
 @router.get("/{loan_id}", response_model=LoanResponse)
@@ -140,6 +152,16 @@ async def update_loan(
     if not loan:
         raise HTTPException(status_code=404, detail="Loan not found")
     updated = await repo.update(loan, body.model_dump(exclude_unset=True))
+    
+    await log_activity(
+        db=db,
+        user_id=_current_user.id,
+        action="Update",
+        module="Loans",
+        object_affected=f"Loan ID: {loan.id}"
+    )
+    await db.commit()
+    
     return updated
 
 
@@ -153,6 +175,16 @@ async def delete_loan(
     deleted = await repo.delete(loan_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Loan not found")
+        
+    await log_activity(
+        db=db,
+        user_id=_current_user.id,
+        action="Delete",
+        module="Loans",
+        object_affected=f"Loan ID: {loan_id}"
+    )
+    await db.commit()
+    
     return {"deleted": True}
 
 

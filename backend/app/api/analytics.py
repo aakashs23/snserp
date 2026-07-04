@@ -9,7 +9,14 @@ from app.models.invoices import Invoice
 from app.models.customers import Customer
 from app.models.users import User
 from app.middleware.auth import get_current_user
-from app.schemas.analytics import RevenueDashboardResponse, MonthlyRevenueItem, TopCustomerItem
+from app.schemas.analytics import (
+    RevenueDashboardResponse, MonthlyRevenueItem, TopCustomerItem,
+    DashboardStatsResponse, InvoiceStatusItem, DocumentUploadItem, RecentRevenueItem
+)
+from app.models.documents import Document
+from app.models.loans import Loan
+from app.models.activity import ActivityLog
+from app.api.activity import ActivityLogResponse
 
 router = APIRouter()
 
@@ -41,8 +48,6 @@ async def get_revenue_dashboard(
     paid_inv = counts.paid or 0
     pending_inv = counts.pending or 0
 
-    # 3. Monthly Trend (Using raw SQL for simpler aggregation over months)
-    # PostgreSQL specific grouping by month text (YYYY-MM)
     monthly_sql = text("""
         SELECT 
             to_char(invoice_date, 'YYYY-MM') as month,
@@ -55,16 +60,13 @@ async def get_revenue_dashboard(
         ORDER BY month ASC
     """)
     monthly_res = await db.execute(monthly_sql, {"year": current_year})
-    monthly_trend = []
-    for row in monthly_res.mappings():
-        monthly_trend.append(MonthlyRevenueItem(
-            month=row['month'],
-            revenue=Decimal(str(row['revenue'])),
-            paid=Decimal(str(row['paid'])),
-            pending=Decimal(str(row['pending']))
-        ))
+    monthly_trend = [
+        MonthlyRevenueItem(
+            month=row['month'], revenue=Decimal(str(row['revenue'])),
+            paid=Decimal(str(row['paid'])), pending=Decimal(str(row['pending']))
+        ) for row in monthly_res.mappings()
+    ]
 
-    # 4. Top Customers
     top_customers_sql = text("""
         SELECT c.customer_name, COALESCE(SUM(i.net_amount), 0) as revenue
         FROM invoices i
@@ -75,72 +77,121 @@ async def get_revenue_dashboard(
         LIMIT 5
     """)
     tc_res = await db.execute(top_customers_sql, {"year": current_year})
-    top_customers = []
-    for row in tc_res.mappings():
-        top_customers.append(TopCustomerItem(
-            customer_name=row['customer_name'],
-            revenue=Decimal(str(row['revenue']))
-        ))
+    top_customers = [
+        TopCustomerItem(customer_name=row['customer_name'], revenue=Decimal(str(row['revenue'])))
+        for row in tc_res.mappings()
+    ]
 
     return RevenueDashboardResponse(
-        total_revenue_ytd=total_ytd,
-        total_invoices_generated=total_inv,
-        pending_invoices_count=pending_inv,
-        paid_invoices_count=paid_inv,
-        monthly_trend=monthly_trend,
-        top_customers=top_customers
+        total_revenue_ytd=total_ytd, total_invoices_generated=total_inv,
+        pending_invoices_count=pending_inv, paid_invoices_count=paid_inv,
+        monthly_trend=monthly_trend, top_customers=top_customers
     )
-
-from app.models.documents import Document
-from app.models.loans import Loan
-from app.models.activity import ActivityLog
-from app.schemas.analytics import DashboardStatsResponse
-from app.api.activity import ActivityLogResponse
 
 @router.get("/dashboard/stats", response_model=DashboardStatsResponse)
 async def get_dashboard_stats(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
 ):
-    import datetime
-    current_month = datetime.date.today().month
-    current_year = datetime.date.today().year
+    current_date = datetime.date.today()
+    current_month = current_date.month
+    current_year = current_date.year
+    seven_days_ago = current_date - datetime.timedelta(days=7)
 
-    # 1. Monthly Revenue
+    # 1. Stats
     rev_query = select(func.sum(Invoice.net_amount)).where(
         func.extract('month', Invoice.invoice_date) == current_month,
         func.extract('year', Invoice.invoice_date) == current_year,
         Invoice.status != 'cancelled'
     )
-    rev_result = await db.execute(rev_query)
-    monthly_rev = rev_result.scalar_one_or_none() or Decimal('0.00')
+    monthly_rev = (await db.execute(rev_query)).scalar_one_or_none() or Decimal('0.00')
 
-    # 2. Total Invoices
-    inv_query = select(func.count(Invoice.id))
-    inv_result = await db.execute(inv_query)
-    total_invoices = inv_result.scalar_one_or_none() or 0
+    yr_query = select(func.sum(Invoice.net_amount)).where(
+        func.extract('year', Invoice.invoice_date) == current_year,
+        Invoice.status != 'cancelled'
+    )
+    yearly_rev = (await db.execute(yr_query)).scalar_one_or_none() or Decimal('0.00')
 
-    # 3. Total Documents
-    doc_query = select(func.count(Document.id)).where(Document.is_deleted == False)
-    doc_result = await db.execute(doc_query)
-    total_documents = doc_result.scalar_one_or_none() or 0
-
-    # 4. Active Customers
-    cust_query = select(func.count(Customer.id))
-    cust_result = await db.execute(cust_query)
-    active_customers = cust_result.scalar_one_or_none() or 0
+    total_customers = (await db.execute(select(func.count(Customer.id)))).scalar_one_or_none() or 0
+    total_documents = (await db.execute(select(func.count(Document.id)).where(Document.is_deleted == False))).scalar_one_or_none() or 0
     
-    # 5. Active Loans
-    loan_query = select(func.count(Loan.id)).where(Loan.status == 'active')
-    loan_result = await db.execute(loan_query)
-    active_loans = loan_result.scalar_one_or_none() or 0
+    inv_counts = (await db.execute(select(
+        func.count(Invoice.id).label('total'),
+        func.count(Invoice.id).filter(Invoice.status == 'paid').label('paid'),
+        func.count(Invoice.id).filter(Invoice.status != 'paid').filter(Invoice.status != 'cancelled').label('pending'),
+        func.sum(Invoice.net_amount).filter(Invoice.status != 'paid').filter(Invoice.status != 'cancelled').label('outstanding')
+    ))).one()
+    
+    total_invoices = inv_counts.total or 0
+    paid_invoices = inv_counts.paid or 0
+    pending_invoices = inv_counts.pending or 0
+    outstanding_amount = inv_counts.outstanding or Decimal('0.00')
+
+    active_loans = (await db.execute(select(func.count(Loan.id)).where(Loan.status == 'active'))).scalar_one_or_none() or 0
+    
+    # recent uploads (last 7 days)
+    recent_uploads = (
+        await db.execute(
+            select(func.count(Document.id)).where(Document.upload_date >= seven_days_ago)
+        )
+    ).scalar_one_or_none() or 0
+
+    # 2. Charts
+    monthly_sql = text("""
+        SELECT to_char(invoice_date, 'YYYY-MM') as month,
+               COALESCE(SUM(net_amount), 0) as revenue,
+               COALESCE(SUM(CASE WHEN status = 'paid' THEN net_amount ELSE 0 END), 0) as paid,
+               COALESCE(SUM(CASE WHEN status != 'paid' AND status != 'cancelled' THEN net_amount ELSE 0 END), 0) as pending
+        FROM invoices WHERE EXTRACT(YEAR FROM invoice_date) = :year GROUP BY month ORDER BY month ASC
+    """)
+    monthly_trend = [
+        MonthlyRevenueItem(month=r['month'], revenue=Decimal(str(r['revenue'])), paid=Decimal(str(r['paid'])), pending=Decimal(str(r['pending'])))
+        for r in (await db.execute(monthly_sql, {"year": current_year})).mappings()
+    ]
+
+    invoice_status = [
+        InvoiceStatusItem(name="Paid", value=paid_invoices),
+        InvoiceStatusItem(name="Pending", value=pending_invoices)
+    ]
+
+    top_cust_sql = text("""
+        SELECT c.customer_name, COALESCE(SUM(i.net_amount), 0) as revenue
+        FROM invoices i JOIN customers c ON i.customer_id = c.id
+        WHERE i.status != 'cancelled' GROUP BY c.id, c.customer_name ORDER BY revenue DESC LIMIT 5
+    """)
+    revenue_by_customer = [
+        TopCustomerItem(customer_name=r['customer_name'], revenue=Decimal(str(r['revenue'])))
+        for r in (await db.execute(top_cust_sql)).mappings()
+    ]
+
+    docs_sql = text("""
+        SELECT to_char(upload_date, 'YYYY-MM') as month, COUNT(*) as count
+        FROM documents WHERE is_deleted = false AND EXTRACT(YEAR FROM upload_date) = :year
+        GROUP BY month ORDER BY month ASC
+    """)
+    documents_uploaded_per_month = [
+        DocumentUploadItem(month=r['month'], count=r['count'])
+        for r in (await db.execute(docs_sql, {"year": current_year})).mappings()
+    ]
+
+    recent_rev_sql = text("""
+        SELECT to_char(invoice_date, 'YYYY-MM-DD') as date, COALESCE(SUM(net_amount), 0) as revenue
+        FROM invoices WHERE invoice_date >= :start_date AND status != 'cancelled'
+        GROUP BY date ORDER BY date ASC
+    """)
+    recent_revenue_trend = [
+        RecentRevenueItem(date=r['date'], revenue=Decimal(str(r['revenue'])))
+        for r in (await db.execute(recent_rev_sql, {"start_date": seven_days_ago})).mappings()
+    ]
 
     return DashboardStatsResponse(
-        monthly_revenue=monthly_rev,
-        total_invoices=total_invoices,
-        total_documents=total_documents,
-        active_customers=active_customers,
-        active_loans=active_loans
+        monthly_revenue=monthly_rev, yearly_revenue=yearly_rev, total_customers=total_customers,
+        total_documents=total_documents, total_invoices=total_invoices, paid_invoices=paid_invoices,
+        pending_invoices=pending_invoices, outstanding_amount=outstanding_amount,
+        active_loans=active_loans, recent_uploads=recent_uploads,
+        revenue_trend=monthly_trend, invoice_status=invoice_status,
+        revenue_by_customer=revenue_by_customer, documents_uploaded_per_month=documents_uploaded_per_month,
+        recent_revenue_trend=recent_revenue_trend
     )
 
 @router.get("/dashboard/activity", response_model=list[ActivityLogResponse])
@@ -153,7 +204,7 @@ async def get_dashboard_activity(
         select(ActivityLog, User.full_name, User.email)
         .outerjoin(User, ActivityLog.user_id == User.id)
         .order_by(desc(ActivityLog.created_at))
-        .limit(5)
+        .limit(10)
     )
     result = await db.execute(stmt)
     rows = result.all()
@@ -161,7 +212,6 @@ async def get_dashboard_activity(
     activities = []
     for row in rows:
         log_obj = row[0]
-        # Attach user properties temporarily for Pydantic
         log_obj.user_name = row[1]
         log_obj.user_email = row[2]
         activities.append(log_obj)

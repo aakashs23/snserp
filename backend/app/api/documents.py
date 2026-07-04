@@ -14,6 +14,7 @@ from app.middleware.rbac import RequireRole
 from app.schemas.documents import DocumentResponse, DocumentCombinedResponse, ShareRequest
 from app.config.supabase import supabase
 from app.services.ai_pipeline import process_document_background
+from app.services.activity_service import log_activity
 
 router = APIRouter()
 
@@ -86,6 +87,8 @@ async def upload_document(
         .where(Document.id == doc_id)
     )
     doc = result.scalar_one()
+    await log_activity(db=db, user_id=current_user.id, action="Upload", module="Documents", object_affected=f"Document ID: {doc_id}")
+    await db.commit()
     return DocumentCombinedResponse.from_document(doc)
 
 @router.get("/", response_model=List[DocumentCombinedResponse])

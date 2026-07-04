@@ -17,6 +17,7 @@ from app.models.users import User
 from app.models.customers import Customer
 from app.repositories.base import BaseRepository
 from app.schemas.invoices import InvoiceCreate, InvoiceResponse, InvoiceUpdate
+from app.services.activity_service import log_activity
 from app.services.pdf_generator import generate_invoice_pdf
 from app.config.supabase import supabase
 
@@ -135,6 +136,8 @@ async def update_invoice(
             detail="Invoice not found",
         )
     updated = await repo.update(invoice, body.model_dump(exclude_unset=True))
+    await log_activity(db=db, user_id=_current_user.id, action="Update", module="Invoices", object_affected=f"Invoice ID: {invoice_id}")
+    await db.commit()
     return updated
 
 
@@ -154,6 +157,8 @@ async def delete_invoice(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Invoice not found",
         )
+    await log_activity(db=db, user_id=_current_user.id, action="Delete", module="Invoices", object_affected=f"Invoice ID: {invoice_id}")
+    await db.commit()
     return {"deleted": True}
 
 

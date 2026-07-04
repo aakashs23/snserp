@@ -110,6 +110,8 @@ async def update_permission(
     await log_activity(db, current_user.id, f"UPDATE_PERMISSION for {perm.user.email}", "document", document_id)
     await db.commit()
     await db.refresh(perm)
+    await log_activity(db=db, user_id=current_user.id, action="Update Permission", module="Document Permissions", object_affected=f"Permission ID: {permission_id}")
+    await db.commit()
     return perm
 
 @router.delete("/{document_id}/permissions/{user_id}")
@@ -136,4 +138,6 @@ async def revoke_permission(
     await log_activity(db, current_user.id, f"REVOKE_PERMISSION from {email}", "document", document_id)
     await db.commit()
     
+    await log_activity(db=db, user_id=current_user.id, action="Revoke Permission", module="Document Permissions", object_affected=f"Permission ID: {permission_id}")
+    await db.commit()
     return {"message": "Permission revoked"}

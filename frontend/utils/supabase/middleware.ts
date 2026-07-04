@@ -32,6 +32,12 @@ export async function updateSession(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser()
 
+  const isApiRoute = request.nextUrl.pathname.startsWith('/api/')
+
+  if (isApiRoute) {
+    return supabaseResponse
+  }
+
   // Protect private routes
   const isAuthRoute = request.nextUrl.pathname === '/login' || request.nextUrl.pathname === '/register'
   

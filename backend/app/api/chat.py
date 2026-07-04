@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config.settings import settings
 from app.schemas.chat import ChatRequest, ChatResponse, Citation, ChatSessionResponse, ChatMessageResponse
 from app.models.users import User
+from app.services.activity_service import log_activity
 from app.models.documents import Document, DocumentAI, DocumentMetadata
 from app.models.chat import AIChatSession, AIChatMessage
 from app.middleware.auth import get_current_user

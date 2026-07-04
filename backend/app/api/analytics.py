@@ -130,7 +130,11 @@ async def get_dashboard_stats(
     active_loans = (await db.execute(select(func.count(Loan.id)).where(Loan.status == 'active'))).scalar_one_or_none() or 0
     
     # recent uploads (last 7 days)
-    recent_uploads = (await db.execute(select(func.count(Document.id)).where(Document.created_at >= seven_days_ago))).scalar_one_or_none() or 0
+    recent_uploads = (
+        await db.execute(
+            select(func.count(Document.id)).where(Document.upload_date >= seven_days_ago)
+        )
+    ).scalar_one_or_none() or 0
 
     # 2. Charts
     monthly_sql = text("""
@@ -161,8 +165,8 @@ async def get_dashboard_stats(
     ]
 
     docs_sql = text("""
-        SELECT to_char(created_at, 'YYYY-MM') as month, COUNT(*) as count
-        FROM documents WHERE is_deleted = false AND EXTRACT(YEAR FROM created_at) = :year
+        SELECT to_char(upload_date, 'YYYY-MM') as month, COUNT(*) as count
+        FROM documents WHERE is_deleted = false AND EXTRACT(YEAR FROM upload_date) = :year
         GROUP BY month ORDER BY month ASC
     """)
     documents_uploaded_per_month = [

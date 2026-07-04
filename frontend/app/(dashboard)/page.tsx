@@ -59,41 +59,83 @@ const quickActions = [
 ]
 
 const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884D8']
+const API_PREFIX = "/api/v1"
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000"
+import { createClient } from "@/utils/supabase/client"
 
 export default function DashboardPage() {
-  const { roleName } = useAuth()
+  const { roleName, isLoading: authLoading } = useAuth()
   
   const [stats, setStats] = useState<DashboardStats | null>(null)
   const [activities, setActivities] = useState<ActivityLog[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    if (authLoading) {
+      return
+    }
+
+    let isMounted = true
+
     async function fetchData() {
       try {
-        const token = localStorage.getItem("token")
+        const supabase = createClient()
+        const { data: { session: initialSession } } = await supabase.auth.getSession()
+        let accessToken = initialSession?.access_token
+
+        if (!accessToken) {
+          const { data: { user } } = await supabase.auth.getUser()
+          if (user) {
+            const { data: { session: refreshedSession } } = await supabase.auth.getSession()
+            accessToken = refreshedSession?.access_token
+          }
+        }
+
+        if (!accessToken) {
+          if (isMounted) setLoading(false)
+          return
+        }
+
         const headers = {
           "Content-Type": "application/json",
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          Authorization: `Bearer ${accessToken}`,
         }
+
         const [statsRes, activityRes] = await Promise.all([
-          fetch(`${API_URL}/api/v1/analytics/dashboard/stats`, { headers }),
-          fetch(`${API_URL}/api/v1/analytics/dashboard/activity`, { headers })
+          fetch(`${API_PREFIX}/analytics/dashboard/stats`, {
+            headers,
+            cache: "no-store",
+          }),
+          fetch(`${API_PREFIX}/analytics/dashboard/activity`, {
+            headers,
+            cache: "no-store",
+          }),
         ])
-        
-        if (statsRes.ok && activityRes.ok) {
+
+        if (!isMounted) {
+          return
+        }
+
+        if (statsRes.ok) {
           setStats(await statsRes.json())
+        }
+
+        if (activityRes.ok) {
           setActivities(await activityRes.json())
         }
       } catch (error) {
         console.error("Error fetching dashboard data:", error)
       } finally {
-        setLoading(false)
+        if (isMounted) setLoading(false)
       }
     }
+
     fetchData()
-  }, [])
+
+    return () => {
+      isMounted = false
+    }
+  }, [authLoading])
 
   const statCards = [
     { title: "Monthly Revenue", value: stats ? `₹${stats.monthly_revenue.toLocaleString()}` : "0", description: "Current month", icon: IndianRupee },
@@ -243,7 +285,14 @@ export default function DashboardPage() {
               Quick Actions
             </h2>
             <div className="grid gap-3">
-              {quickActions.map((action) => (
+              {quickActions
+                .filter((action) => {
+                  if (roleName === "accountant") {
+                    return action.title !== "Create Invoice" && action.title !== "Revenue Dashboard"
+                  }
+                  return true
+                })
+                .map((action) => (
                 <Link key={action.title} href={action.href}>
                   <Card className="hover:border-primary/50 transition-colors">
                     <CardHeader className="p-4 flex flex-row items-center gap-4 space-y-0">

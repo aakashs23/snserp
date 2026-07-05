@@ -48,6 +48,7 @@ class Document(UUIDPrimaryKeyMixin, Base):
 
     file_name: Mapped[str] = mapped_column(String(255), nullable=False)
     original_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    display_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     storage_path: Mapped[str] = mapped_column(Text, nullable=False)
     file_size: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     mime_type: Mapped[str | None] = mapped_column(String(120), nullable=True)

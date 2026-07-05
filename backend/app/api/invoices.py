@@ -32,21 +32,49 @@ async def list_invoices(
     customer_id: Optional[UUID] = Query(None, description="Filter by customer ID"),
     from_date: Optional[date] = Query(None, description="Invoice date from (inclusive)"),
     to_date: Optional[date] = Query(None, description="Invoice date to (inclusive)"),
+    search: Optional[str] = Query(None, description="Search by invoice number or customer name"),
+    sort_by: Optional[str] = Query("date", description="Sort column (date, customer, amount, status)"),
+    sort_order: Optional[str] = Query("desc", description="Sort order (asc, desc)"),
     db: AsyncSession = Depends(get_db),
 ) -> list[InvoiceResponse]:
-    """List invoices with optional filters and pagination. Eagerly loads customer."""
-    query = select(Invoice).options(selectinload(Invoice.customer))
+    """List invoices with optional filters, search, sorting, and pagination. Eagerly loads customer."""
+    from sqlalchemy import or_
+    query = select(Invoice).join(Customer).options(selectinload(Invoice.customer))
 
     if status_filter:
-        query = query.where(Invoice.status == status_filter)
+        if status_filter != "all":
+            query = query.where(Invoice.status == status_filter)
     if customer_id:
         query = query.where(Invoice.customer_id == customer_id)
     if from_date:
         query = query.where(Invoice.invoice_date >= from_date)
     if to_date:
         query = query.where(Invoice.invoice_date <= to_date)
+    if search:
+        search_term = f"%{search}%"
+        query = query.where(
+            or_(
+                Invoice.invoice_number.ilike(search_term),
+                Customer.customer_name.ilike(search_term)
+            )
+        )
 
-    query = query.order_by(Invoice.invoice_date.desc()).offset(skip).limit(limit)
+    # Sorting
+    if sort_by == "customer":
+        order_col = Customer.customer_name
+    elif sort_by == "amount":
+        order_col = Invoice.net_amount
+    elif sort_by == "status":
+        order_col = Invoice.status
+    else:
+        order_col = Invoice.invoice_date
+
+    if sort_order == "asc":
+        query = query.order_by(order_col.asc())
+    else:
+        query = query.order_by(order_col.desc())
+
+    query = query.offset(skip).limit(limit)
     result = await db.execute(query)
     return result.scalars().all()
 
@@ -141,13 +169,11 @@ async def update_invoice(
     return updated
 
 
-@router.delete(
-    "/{invoice_id}",
-    dependencies=[Depends(RequireRole(["admin", "employee"]))],
-)
+@router.delete("/{invoice_id}")
 async def delete_invoice(
     invoice_id: UUID,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(RequireRole(["admin"])),
 ) -> dict:
     """Delete an invoice. Requires admin role."""
     repo = BaseRepository(Invoice, db)
@@ -157,7 +183,7 @@ async def delete_invoice(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Invoice not found",
         )
-    await log_activity(db=db, user_id=_current_user.id, action="Delete", module="Invoices", object_affected=f"Invoice ID: {invoice_id}")
+    await log_activity(db=db, user_id=current_user.id, action="Delete", module="Invoices", object_affected=f"Invoice ID: {invoice_id}")
     await db.commit()
     return {"deleted": True}
 

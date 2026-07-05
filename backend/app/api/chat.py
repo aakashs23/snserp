@@ -4,8 +4,7 @@ from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException
 import chromadb
-from langchain_community.llms import Ollama
-from langchain_community.embeddings import OllamaEmbeddings
+from langchain_ollama import OllamaEmbeddings, OllamaLLM
 from sqlalchemy import or_, select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -27,7 +26,7 @@ chroma_client = chromadb.PersistentClient(path=settings.chroma_db_path)
 collection = chroma_client.get_or_create_collection(name="snserp_documents")
 
 # Initialize Ollama LLM and Embeddings
-llm = Ollama(
+llm = OllamaLLM(
     base_url=settings.ollama_base_url,
     model=settings.llm_model,
     temperature=0.2

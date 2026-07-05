@@ -156,13 +156,13 @@ export default function RevenueDashboardPage() {
         </div>
 
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
-          <Card className="lg:col-span-4">
+          <Card className="lg:col-span-4 min-w-0">
             <CardHeader>
               <CardTitle>Monthly Revenue Trend</CardTitle>
               <CardDescription>Gross revenue grouped by month of supply.</CardDescription>
             </CardHeader>
-            <CardContent className="pl-2">
-              <div className="h-[350px] w-full">
+            <CardContent className="pl-2 min-w-0">
+              <div className="h-[350px] w-full min-w-0">
                 <ResponsiveContainer width="100%" height="100%">
                   <LineChart data={data.monthly_trend} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} />
@@ -180,13 +180,13 @@ export default function RevenueDashboardPage() {
             </CardContent>
           </Card>
 
-          <Card className="lg:col-span-3">
+          <Card className="lg:col-span-3 min-w-0">
             <CardHeader>
               <CardTitle>Top Customers</CardTitle>
               <CardDescription>Highest revenue generating customers.</CardDescription>
             </CardHeader>
-            <CardContent>
-              <div className="h-[350px] w-full">
+            <CardContent className="min-w-0">
+              <div className="h-[350px] w-full min-w-0">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={data.top_customers} layout="vertical" margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
                     <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} />

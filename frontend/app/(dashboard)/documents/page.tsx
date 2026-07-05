@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useCallback, useRef } from "react"
-import { UploadCloud, File, Search, Trash2, Eye, Download, FileText, CheckCircle2, Clock, Share2 } from "lucide-react"
+import { UploadCloud, File, Search, Trash2, Eye, Download, FileText, CheckCircle2, Clock, Share2, Edit2 } from "lucide-react"
 import { toast } from "sonner"
 import { createClient } from "@/utils/supabase/client"
 import { useAuth } from "@/components/providers/auth-provider"
@@ -9,6 +9,7 @@ import { DocumentPermissionsDialog } from "@/components/document-permissions-dia
 
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import {
@@ -20,15 +21,31 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { Skeleton } from "@/components/ui/skeleton"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 
 interface DocRecord {
   id: string
   file_name: string
   original_name: string
+  display_name: string | null
   file_size: number
   mime_type: string
   upload_date: string
-  // AI and metadata fields (flattened from combined response)
+  category: string | null
   ai_category: string | null
   ai_status: string
   title: string | null
@@ -40,6 +57,12 @@ interface DocRecord {
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
 
+const CATEGORIES = [
+  "Invoice", "Purchase Order", "Agreement", "Loan", "GST", "Tax", 
+  "Bank Statement", "Financial Report", "Customer", "Vendor", 
+  "Legal", "Government", "Project", "Technical", "Other"
+]
+
 export default function DocumentsPage() {
   const { roleName } = useAuth()
   const [documents, setDocuments] = useState<DocRecord[]>([])
@@ -47,6 +70,12 @@ export default function DocumentsPage() {
   const [search, setSearch] = useState("")
   const [uploading, setUploading] = useState(false)
   const [permissionsDocId, setPermissionsDocId] = useState<string | null>(null)
+  
+  // Renaming state
+  const [editingDoc, setEditingDoc] = useState<DocRecord | null>(null)
+  const [editOriginalName, setEditOriginalName] = useState("")
+  const [editDisplayName, setEditDisplayName] = useState("")
+
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const getAuthHeaders = useCallback(async () => {
@@ -80,7 +109,7 @@ export default function DocumentsPage() {
   }, [search, getAuthHeaders])
 
   useEffect(() => {
-    const t = setTimeout(() => fetchDocuments(), 0)
+    const t = setTimeout(() => fetchDocuments(), 300)
     return () => clearTimeout(t)
   }, [fetchDocuments])
 
@@ -172,6 +201,61 @@ export default function DocumentsPage() {
     }
   }
 
+  const handleCategoryOverride = async (id: string, newCategory: string) => {
+    try {
+      const headers = await getAuthHeaders()
+      const res = await fetch(`${API_URL}/api/v1/documents/${id}`, {
+        method: "PUT",
+        headers: {
+          ...headers,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ category: newCategory })
+      })
+      if (res.ok) {
+        toast.success("Category updated manually")
+        fetchDocuments()
+      } else {
+        toast.error("Failed to override category")
+      }
+    } catch {
+      toast.error("Network error while updating category")
+    }
+  }
+
+  const openRenameDialog = (doc: DocRecord) => {
+    setEditingDoc(doc)
+    setEditOriginalName(doc.original_name)
+    setEditDisplayName(doc.display_name || doc.original_name)
+  }
+
+  const handleRenameSave = async () => {
+    if (!editingDoc) return
+    try {
+      const headers = await getAuthHeaders()
+      const res = await fetch(`${API_URL}/api/v1/documents/${editingDoc.id}`, {
+        method: "PUT",
+        headers: {
+          ...headers,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          original_name: editOriginalName,
+          display_name: editDisplayName
+        })
+      })
+      if (res.ok) {
+        toast.success("Document renamed successfully")
+        setEditingDoc(null)
+        fetchDocuments()
+      } else {
+        toast.error("Failed to rename document")
+      }
+    } catch {
+      toast.error("Network error while renaming document")
+    }
+  }
+
   const formatSize = (bytes: number) => {
     if (bytes === 0) return '0 B'
     const k = 1024
@@ -217,7 +301,7 @@ export default function DocumentsPage() {
         <div className="relative flex-1 max-w-sm">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
-            placeholder="Search by original filename..."
+            placeholder="Search by filename..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="pl-9"
@@ -265,24 +349,56 @@ export default function DocumentsPage() {
                     <TableCell className="font-medium">
                       <div className="flex items-center gap-2">
                         <File className="h-4 w-4 text-muted-foreground" />
-                        <span className="truncate max-w-[200px]" title={doc.original_name}>
-                          {doc.original_name}
-                        </span>
+                        <div className="flex flex-col">
+                          <span className="truncate max-w-[200px]" title={doc.display_name || doc.original_name}>
+                            {doc.display_name || doc.original_name}
+                          </span>
+                          {doc.display_name && doc.display_name !== doc.original_name && (
+                            <span className="text-xs text-muted-foreground truncate max-w-[200px]" title={`Original: ${doc.original_name}`}>
+                              {doc.original_name}
+                            </span>
+                          )}
+                        </div>
                       </div>
                     </TableCell>
                     <TableCell>
-                      <Badge variant="outline" className="bg-muted">
-                        {doc.ai_status === "completed" && doc.ai_category ? (
-                          <div className="flex items-center gap-1">
-                            <CheckCircle2 className="h-3 w-3" />
-                            {doc.ai_category}
-                          </div>
-                        ) : doc.ai_category ? (
-                          doc.ai_category
-                        ) : (
-                          "Processing..."
-                        )}
-                      </Badge>
+                      {roleName === "admin" ? (
+                        <div className="flex items-center gap-2">
+                          <Select
+                            value={doc.category || doc.ai_category || ""}
+                            onValueChange={(val) => handleCategoryOverride(doc.id, val)}
+                          >
+                            <SelectTrigger className={`w-[160px] h-8 text-xs ${doc.category ? "border-primary text-primary" : ""}`}>
+                              <SelectValue placeholder="Select Category" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {CATEGORIES.map(c => (
+                                <SelectItem key={c} value={c}>{c}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          {doc.category && (
+                            <span className="text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded" title={`AI Predicted: ${doc.ai_category || 'None'}`}>
+                              Overridden
+                            </span>
+                          )}
+                        </div>
+                      ) : (
+                        <Badge variant={doc.category ? "default" : "outline"} className={!doc.category ? "bg-muted" : ""}>
+                          {doc.category ? (
+                            doc.category
+                          ) : doc.ai_status === "completed" && doc.ai_category ? (
+                            <div className="flex items-center gap-1">
+                              <CheckCircle2 className="h-3 w-3" />
+                              {doc.ai_category}
+                            </div>
+                          ) : doc.ai_category ? (
+                            doc.ai_category
+                          ) : (
+                            "Processing..."
+                          )}
+                        </Badge>
+                      )}
                     </TableCell>
                     <TableCell className="text-muted-foreground text-sm">
                       {formatSize(doc.file_size)}
@@ -314,6 +430,11 @@ export default function DocumentsPage() {
                           <Download className="h-4 w-4" />
                         </Button>
                         {roleName === "admin" && (
+                          <Button variant="ghost" size="icon" onClick={() => openRenameDialog(doc)} title="Rename Document">
+                            <Edit2 className="h-4 w-4 text-orange-500" />
+                          </Button>
+                        )}
+                        {roleName === "admin" && (
                           <Button variant="ghost" size="icon" onClick={() => setPermissionsDocId(doc.id)} title="Manage Permissions">
                             <Share2 className="h-4 w-4 text-blue-500" />
                           </Button>
@@ -332,11 +453,47 @@ export default function DocumentsPage() {
           </Table>
         </CardContent>
       </Card>
+      
       <DocumentPermissionsDialog
         documentId={permissionsDocId}
         open={!!permissionsDocId}
         onOpenChange={(open) => !open && setPermissionsDocId(null)}
       />
+
+      <Dialog open={!!editingDoc} onOpenChange={(open) => !open && setEditingDoc(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Rename Document</DialogTitle>
+            <DialogDescription>
+              Update the original filename or set a new display name for the document.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label>Original Filename</Label>
+              <Input 
+                value={editOriginalName} 
+                onChange={e => setEditOriginalName(e.target.value)} 
+                placeholder="e.g., scan_001.pdf" 
+              />
+              <p className="text-xs text-muted-foreground">This is the actual filename as it was uploaded.</p>
+            </div>
+            <div className="space-y-2">
+              <Label>Display Filename</Label>
+              <Input 
+                value={editDisplayName} 
+                onChange={e => setEditDisplayName(e.target.value)} 
+                placeholder="e.g., August Invoice" 
+              />
+              <p className="text-xs text-muted-foreground">This name will be prioritized in the documents table.</p>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditingDoc(null)}>Cancel</Button>
+            <Button onClick={handleRenameSave}>Save Changes</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

@@ -221,8 +221,8 @@ export default function DashboardPage() {
                     <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
                     <XAxis dataKey="month" />
                     <YAxis />
-                    <Tooltip formatter={(value: number | string) => `₹${Number(value).toLocaleString()}`} />
-                    <Line type="monotone" dataKey="revenue" stroke="#8884d8" strokeWidth={3} />
+                    <Tooltip formatter={(value: any) => `₹${Number(value).toLocaleString("en-IN")}`} />
+                    <Line type="monotone" dataKey="revenue" stroke="#8884d8" strokeWidth={2} />
                   </LineChart>
                 </ResponsiveContainer>
               </div>
@@ -240,7 +240,7 @@ export default function DashboardPage() {
                     <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
                     <XAxis dataKey="date" />
                     <YAxis />
-                    <Tooltip formatter={(value: number | string) => `₹${Number(value).toLocaleString()}`} />
+                    <Tooltip formatter={(value: any) => `₹${Number(value).toLocaleString("en-IN")}`} />
                     <Area type="monotone" dataKey="revenue" stroke="#00C49F" fill="#00C49F" fillOpacity={0.3} />
                   </AreaChart>
                 </ResponsiveContainer>
@@ -259,7 +259,7 @@ export default function DashboardPage() {
                     <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
                     <XAxis type="number" />
                     <YAxis dataKey="customer_name" type="category" width={100} />
-                    <Tooltip formatter={(value: number | string) => `₹${Number(value).toLocaleString()}`} />
+                    <Tooltip formatter={(value: any) => `₹${Number(value).toLocaleString("en-IN")}`} />
                     <Bar dataKey="revenue" fill="#FFBB28" radius={[0, 4, 4, 0]} />
                   </BarChart>
                 </ResponsiveContainer>

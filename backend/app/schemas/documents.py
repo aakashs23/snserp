@@ -13,6 +13,11 @@ class DocumentMetadataResponse(BaseModel):
     language: Optional[str] = None
     confidence_score: Optional[float] = None
 
+class DocumentUpdate(BaseModel):
+    original_name: Optional[str] = None
+    display_name: Optional[str] = None
+    category: Optional[str] = None
+
 class DocumentAIResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     summary: Optional[str] = None
@@ -24,6 +29,7 @@ class DocumentResponse(BaseModel):
     id: UUID
     file_name: str
     original_name: str
+    display_name: Optional[str] = None
     storage_path: str
     file_size: Optional[int] = None
     mime_type: Optional[str] = None
@@ -44,6 +50,7 @@ class DocumentCombinedResponse(BaseModel):
     id: UUID
     file_name: str
     original_name: str
+    display_name: Optional[str] = None
     storage_path: str
     file_size: Optional[int] = None
     mime_type: Optional[str] = None
@@ -81,6 +88,7 @@ class DocumentCombinedResponse(BaseModel):
             id=doc.id,
             file_name=doc.file_name,
             original_name=doc.original_name,
+            display_name=doc.display_name,
             storage_path=doc.storage_path,
             file_size=doc.file_size,
             mime_type=doc.mime_type,

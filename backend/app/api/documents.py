@@ -11,7 +11,7 @@ from app.models.users import User
 from app.models.document_permissions import DocumentPermission
 from app.middleware.auth import get_current_user
 from app.middleware.rbac import RequireRole
-from app.schemas.documents import DocumentResponse, DocumentCombinedResponse, ShareRequest
+from app.schemas.documents import DocumentResponse, DocumentCombinedResponse, ShareRequest, DocumentUpdate
 from app.config.supabase import supabase
 from app.services.ai_pipeline import process_document_background
 from app.services.activity_service import log_activity
@@ -186,6 +186,38 @@ async def download_document(
         return {"url": res.get("signedURL")}
     except Exception as e:
         raise HTTPException(status_code=500, detail="Failed to generate download URL")
+
+@router.put("/{document_id}", response_model=DocumentCombinedResponse)
+async def update_document(
+    document_id: uuid.UUID,
+    body: DocumentUpdate,
+    current_user: User = Depends(RequireRole(["admin"])),
+    db: AsyncSession = Depends(get_db)
+):
+    query = select(Document).options(
+        selectinload(Document.metadata_info),
+        selectinload(Document.ai_info),
+        selectinload(Document.shared_with),
+    ).where(Document.id == document_id)
+    
+    result = await db.execute(query)
+    doc = result.scalar_one_or_none()
+    
+    if not doc or doc.is_deleted:
+        raise HTTPException(status_code=404, detail="Document not found")
+        
+    if body.original_name is not None:
+        doc.original_name = body.original_name
+    if body.display_name is not None:
+        doc.display_name = body.display_name
+    if body.category is not None:
+        doc.category = body.category
+        
+    await log_activity(db=db, user_id=current_user.id, action="Update", module="Documents", object_affected=f"Document ID: {document_id}")
+    await db.commit()
+    await db.refresh(doc)
+    
+    return DocumentCombinedResponse.from_document(doc)
 
 @router.delete("/{document_id}")
 async def delete_document(

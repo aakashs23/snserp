@@ -8,7 +8,6 @@ import {
   Upload,
   Users,
   Briefcase,
-  History,
   Activity,
   CheckCircle2,
   Clock,
@@ -37,11 +36,11 @@ interface DashboardStats {
   active_loans: number
   recent_uploads: number
 
-  revenue_trend: any[]
-  invoice_status: any[]
-  revenue_by_customer: any[]
-  documents_uploaded_per_month: any[]
-  recent_revenue_trend: any[]
+  revenue_trend: RevenueTrendPoint[]
+  invoice_status: InvoiceStatusPoint[]
+  revenue_by_customer: RevenueByCustomerPoint[]
+  documents_uploaded_per_month: DocumentsUploadedPoint[]
+  recent_revenue_trend: RecentRevenueTrendPoint[]
 }
 
 interface ActivityLog {
@@ -50,6 +49,31 @@ interface ActivityLog {
   user_name?: string
   module?: string
   object_affected?: string
+}
+
+interface RevenueTrendPoint {
+  month: string
+  revenue: number
+}
+
+interface RecentRevenueTrendPoint {
+  date: string
+  revenue: number
+}
+
+interface RevenueByCustomerPoint {
+  customer_name: string
+  revenue: number
+}
+
+interface InvoiceStatusPoint {
+  name: string
+  value: number
+}
+
+interface DocumentsUploadedPoint {
+  month: string
+  count: number
 }
 
 const quickActions = [
@@ -186,90 +210,100 @@ export default function DashboardPage() {
       {!loading && stats && (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-2">
           
-          <Card>
+          <Card className="min-w-0">
             <CardHeader>
               <CardTitle>Revenue Trend (Monthly)</CardTitle>
             </CardHeader>
-            <CardContent className="h-80">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={stats.revenue_trend}>
-                  <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-                  <XAxis dataKey="month" />
-                  <YAxis />
-                  <Tooltip formatter={(val: any) => `₹${Number(val).toLocaleString()}`} />
-                  <Line type="monotone" dataKey="revenue" stroke="#8884d8" strokeWidth={3} />
-                </LineChart>
-              </ResponsiveContainer>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Recent Revenue Trend (7 Days)</CardTitle>
-            </CardHeader>
-            <CardContent className="h-80">
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={stats.recent_revenue_trend}>
-                  <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-                  <XAxis dataKey="date" />
-                  <YAxis />
-                  <Tooltip formatter={(val: any) => `₹${Number(val).toLocaleString()}`} />
-                  <Area type="monotone" dataKey="revenue" stroke="#00C49F" fill="#00C49F" fillOpacity={0.3} />
-                </AreaChart>
-              </ResponsiveContainer>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Revenue by Customer (Top 5)</CardTitle>
-            </CardHeader>
-            <CardContent className="h-80">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={stats.revenue_by_customer} layout="vertical" margin={{ left: 20 }}>
-                  <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
-                  <XAxis type="number" />
-                  <YAxis dataKey="customer_name" type="category" width={100} />
-                  <Tooltip formatter={(val: any) => `₹${Number(val).toLocaleString()}`} />
-                  <Bar dataKey="revenue" fill="#FFBB28" radius={[0, 4, 4, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </CardContent>
-          </Card>
-
-          <div className="space-y-4">
-            <Card>
-              <CardHeader>
-                <CardTitle>Invoice Status</CardTitle>
-              </CardHeader>
-              <CardContent className="h-48">
+            <CardContent className="min-w-0">
+              <div className="h-80 w-full min-w-0">
                 <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie data={stats.invoice_status} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={60} label>
-                      {stats.invoice_status.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                      ))}
-                    </Pie>
-                    <Tooltip />
-                  </PieChart>
-                </ResponsiveContainer>
-              </CardContent>
-            </Card>
-            
-            <Card>
-              <CardHeader>
-                <CardTitle>Documents Uploaded</CardTitle>
-              </CardHeader>
-              <CardContent className="h-48">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={stats.documents_uploaded_per_month}>
+                  <LineChart data={stats.revenue_trend}>
                     <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
                     <XAxis dataKey="month" />
                     <YAxis />
-                    <Tooltip />
-                    <Bar dataKey="count" fill="#0088FE" radius={[4, 4, 0, 0]} />
+                    <Tooltip formatter={(value: number | string) => `₹${Number(value).toLocaleString()}`} />
+                    <Line type="monotone" dataKey="revenue" stroke="#8884d8" strokeWidth={3} />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="min-w-0">
+            <CardHeader>
+              <CardTitle>Recent Revenue Trend (7 Days)</CardTitle>
+            </CardHeader>
+            <CardContent className="min-w-0">
+              <div className="h-80 w-full min-w-0">
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={stats.recent_revenue_trend}>
+                    <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                    <XAxis dataKey="date" />
+                    <YAxis />
+                    <Tooltip formatter={(value: number | string) => `₹${Number(value).toLocaleString()}`} />
+                    <Area type="monotone" dataKey="revenue" stroke="#00C49F" fill="#00C49F" fillOpacity={0.3} />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="min-w-0">
+            <CardHeader>
+              <CardTitle>Revenue by Customer (Top 5)</CardTitle>
+            </CardHeader>
+            <CardContent className="min-w-0">
+              <div className="h-80 w-full min-w-0">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={stats.revenue_by_customer} layout="vertical" margin={{ left: 20 }}>
+                    <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                    <XAxis type="number" />
+                    <YAxis dataKey="customer_name" type="category" width={100} />
+                    <Tooltip formatter={(value: number | string) => `₹${Number(value).toLocaleString()}`} />
+                    <Bar dataKey="revenue" fill="#FFBB28" radius={[0, 4, 4, 0]} />
                   </BarChart>
                 </ResponsiveContainer>
+              </div>
+            </CardContent>
+          </Card>
+
+          <div className="space-y-4 min-w-0">
+            <Card className="min-w-0">
+              <CardHeader>
+                <CardTitle>Invoice Status</CardTitle>
+              </CardHeader>
+              <CardContent className="min-w-0">
+                <div className="h-48 w-full min-w-0">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie data={stats.invoice_status} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={60} label>
+                        {stats.invoice_status.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                        ))}
+                      </Pie>
+                      <Tooltip />
+                    </PieChart>
+                  </ResponsiveContainer>
+                </div>
+              </CardContent>
+            </Card>
+            
+            <Card className="min-w-0">
+              <CardHeader>
+                <CardTitle>Documents Uploaded</CardTitle>
+              </CardHeader>
+              <CardContent className="min-w-0">
+                <div className="h-48 w-full min-w-0">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={stats.documents_uploaded_per_month}>
+                      <CartesianGrid strokeDasharray="3 3" opacity={0.3} />
+                      <XAxis dataKey="month" />
+                      <YAxis />
+                      <Tooltip />
+                      <Bar dataKey="count" fill="#0088FE" radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
               </CardContent>
             </Card>
           </div>

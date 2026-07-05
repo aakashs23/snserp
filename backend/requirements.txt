@@ -27,6 +27,7 @@ num2words
 
 # AI (shared with ai/ service)
 langchain
+langchain-ollama
 langchain-community
 chromadb
 pymupdf

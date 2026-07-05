@@ -7,6 +7,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, computed_field
 
+from app.schemas.customers import CustomerResponse
+
 
 class InvoiceCreate(BaseModel):
     invoice_number: str
@@ -65,3 +67,5 @@ class InvoiceResponse(BaseModel):
     created_by: UUID
     created_at: datetime
     updated_at: datetime
+    
+    customer: Optional[CustomerResponse] = None

@@ -5,8 +5,7 @@ import fitz  # PyMuPDF
 from datetime import datetime
 from uuid import UUID
 
-from langchain_community.llms import Ollama
-from langchain_community.embeddings import OllamaEmbeddings
+from langchain_ollama import OllamaEmbeddings, OllamaLLM
 import chromadb
 
 from app.config.settings import settings
@@ -21,7 +20,7 @@ chroma_client = chromadb.PersistentClient(path=settings.chroma_db_path)
 collection = chroma_client.get_or_create_collection(name="snserp_documents")
 
 # Initialize Ollama LLM and Embeddings
-llm = Ollama(
+llm = OllamaLLM(
     base_url=settings.ollama_base_url,
     model=settings.llm_model,
     temperature=0.0

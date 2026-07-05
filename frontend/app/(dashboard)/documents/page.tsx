@@ -59,8 +59,9 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
 
 const CATEGORIES = [
   "Invoice", "Purchase Order", "Agreement", "Loan", "GST", "Tax", 
-  "Bank Statement", "Financial Report", "Customer", "Vendor", 
-  "Legal", "Government", "Project", "Technical", "Other"
+  "Bank Statement", "Financial Report", "Customer", 
+  "Legal", "Project", "Technical", "Receipt", 
+  "Customer Document", "Generation Statement", "Miscellaneous", "Other"
 ]
 
 export default function DocumentsPage() {
@@ -112,6 +113,23 @@ export default function DocumentsPage() {
     const t = setTimeout(() => fetchDocuments(), 300)
     return () => clearTimeout(t)
   }, [fetchDocuments])
+
+  useEffect(() => {
+    if (documents.length === 0) {
+      return
+    }
+
+    const hasPendingDocuments = documents.some((doc) => doc.ai_status === "pending")
+    if (!hasPendingDocuments) {
+      return
+    }
+
+    const intervalId = window.setInterval(() => {
+      fetchDocuments()
+    }, 3000)
+
+    return () => window.clearInterval(intervalId)
+  }, [documents, fetchDocuments])
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -268,6 +286,22 @@ export default function DocumentsPage() {
     day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit"
   })
 
+  const isManualOverride = (doc: DocRecord) =>
+    !!doc.category && !!doc.ai_category && doc.category !== doc.ai_category
+
+  const getEffectiveCategoryLabel = (doc: DocRecord) => {
+    if (doc.category) {
+      return doc.category
+    }
+    if (doc.ai_status === "completed" && doc.ai_category) {
+      return doc.ai_category
+    }
+    if (doc.ai_category) {
+      return doc.ai_category
+    }
+    return "Processing..."
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -368,7 +402,7 @@ export default function DocumentsPage() {
                             value={doc.category || doc.ai_category || ""}
                             onValueChange={(val) => handleCategoryOverride(doc.id, val)}
                           >
-                            <SelectTrigger className={`w-[160px] h-8 text-xs ${doc.category ? "border-primary text-primary" : ""}`}>
+                            <SelectTrigger className={`w-[160px] h-8 text-xs ${isManualOverride(doc) ? "border-primary text-primary" : ""}`}>
                               <SelectValue placeholder="Select Category" />
                             </SelectTrigger>
                             <SelectContent>
@@ -377,25 +411,24 @@ export default function DocumentsPage() {
                               ))}
                             </SelectContent>
                           </Select>
-                          {doc.category && (
+                          {isManualOverride(doc) && (
                             <span className="text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded" title={`AI Predicted: ${doc.ai_category || 'None'}`}>
                               Overridden
                             </span>
                           )}
                         </div>
                       ) : (
-                        <Badge variant={doc.category ? "default" : "outline"} className={!doc.category ? "bg-muted" : ""}>
-                          {doc.category ? (
-                            doc.category
-                          ) : doc.ai_status === "completed" && doc.ai_category ? (
+                        <Badge
+                          variant={doc.category ? "default" : "outline"}
+                          className={!doc.category ? "bg-muted" : ""}
+                        >
+                          {doc.ai_status === "completed" && getEffectiveCategoryLabel(doc) !== "Processing..." ? (
                             <div className="flex items-center gap-1">
                               <CheckCircle2 className="h-3 w-3" />
-                              {doc.ai_category}
+                              {getEffectiveCategoryLabel(doc)}
                             </div>
-                          ) : doc.ai_category ? (
-                            doc.ai_category
                           ) : (
-                            "Processing..."
+                            getEffectiveCategoryLabel(doc)
                           )}
                         </Badge>
                       )}

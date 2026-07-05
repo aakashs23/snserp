@@ -206,14 +206,20 @@ async def update_document(
     if not doc or doc.is_deleted:
         raise HTTPException(status_code=404, detail="Document not found")
         
+    category_changed = body.category is not None and body.category != doc.category
+
     if body.original_name is not None:
         doc.original_name = body.original_name
     if body.display_name is not None:
         doc.display_name = body.display_name
     if body.category is not None:
         doc.category = body.category
-        
-    await log_activity(db=db, user_id=current_user.id, action="Update", module="Documents", object_affected=f"Document ID: {document_id}")
+
+    action = "Update"
+    if category_changed:
+        action = "Manual Category Override"
+
+    await log_activity(db=db, user_id=current_user.id, action=action, module="Documents", object_affected=f"Document ID: {document_id}")
     await db.commit()
     await db.refresh(doc)
     

@@ -1,6 +1,7 @@
 import uuid
 import json
 import logging
+import io
 import fitz  # PyMuPDF
 from datetime import datetime
 from uuid import UUID
@@ -14,6 +15,17 @@ from sqlalchemy import select
 from app.models.documents import Document, DocumentMetadata, DocumentAI
 
 logger = logging.getLogger(__name__)
+
+ALLOWED_AI_CATEGORIES = {
+    "Invoice",
+    "Purchase Order",
+    "Agreement",
+    "Customer Document",
+    "Bank Statement",
+    "Generation Statement",
+    "Receipt",
+    "Miscellaneous",
+}
 
 # Initialize ChromaDB persistent client
 chroma_client = chromadb.PersistentClient(path=settings.chroma_db_path)
@@ -33,6 +45,8 @@ embeddings = OllamaEmbeddings(
 
 import tempfile
 import os
+import zipfile
+from xml.etree import ElementTree
 
 # Lazy load OCR to prevent memory bloat on startup if unused
 _ocr_instance = None
@@ -41,8 +55,58 @@ def get_ocr():
     global _ocr_instance
     if _ocr_instance is None:
         from paddleocr import PaddleOCR
-        _ocr_instance = PaddleOCR(use_textline_orientation=True, lang='en', show_log=False)
+        _ocr_instance = PaddleOCR(use_textline_orientation=True, lang='en')
     return _ocr_instance
+
+
+def normalize_ai_category(raw_category: str | None) -> str:
+    """Clamp AI output to supported categories."""
+    if not raw_category:
+        return "Miscellaneous"
+
+    cleaned = raw_category.strip()
+    if cleaned in ALLOWED_AI_CATEGORIES:
+        return cleaned
+
+    lowered = cleaned.lower()
+    alias_map = {
+        "invoice": "Invoice",
+        "purchase order": "Purchase Order",
+        "po": "Purchase Order",
+        "agreement": "Agreement",
+        "customer": "Customer Document",
+        "customer document": "Customer Document",
+        "bank statement": "Bank Statement",
+        "generation statement": "Generation Statement",
+        "receipt": "Receipt",
+        "misc": "Miscellaneous",
+        "miscellaneous": "Miscellaneous",
+    }
+    return alias_map.get(lowered, "Miscellaneous")
+
+
+def extract_docx_text(file_bytes: bytes) -> str:
+    """Extract readable text from a .docx document without extra dependencies."""
+    try:
+        with zipfile.ZipFile(io.BytesIO(file_bytes)) as archive:
+            document_xml = archive.read("word/document.xml")
+    except Exception as exc:
+        logger.error(f"DOCX extraction failed: {exc}")
+        return ""
+
+    try:
+        root = ElementTree.fromstring(document_xml)
+    except ElementTree.ParseError as exc:
+        logger.error(f"DOCX XML parsing failed: {exc}")
+        return ""
+
+    namespace = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
+    paragraphs = []
+    for paragraph in root.findall(".//w:p", namespace):
+        runs = [node.text for node in paragraph.findall(".//w:t", namespace) if node.text]
+        if runs:
+            paragraphs.append("".join(runs))
+    return "\n".join(paragraphs)
 
 async def process_document_background(document_id: UUID, file_bytes: bytes, file_name: str, mime_type: str):
     """
@@ -59,6 +123,10 @@ async def process_document_background(document_id: UUID, file_bytes: bytes, file
         extracted_text = ""
         is_pdf = mime_type == "application/pdf"
         is_image = mime_type and mime_type.startswith("image/")
+        is_docx = (
+            mime_type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            or file_name.lower().endswith(".docx")
+        )
         
         if is_pdf:
             try:
@@ -72,6 +140,8 @@ async def process_document_background(document_id: UUID, file_bytes: bytes, file
         elif mime_type and mime_type.startswith("text/"):
             # Fallback for plain text
             extracted_text = file_bytes.decode('utf-8', errors='ignore')
+        elif is_docx:
+            extracted_text = extract_docx_text(file_bytes)
 
         # If it's an image, or a PDF with very little selectable text (like a scanned PDF), use PaddleOCR
         if is_image or (is_pdf and len(extracted_text.strip()) < 50):
@@ -85,7 +155,7 @@ async def process_document_background(document_id: UUID, file_bytes: bytes, file
                     tmp.write(file_bytes)
                     tmp_path = tmp.name
                 
-                result = ocr.ocr(tmp_path, cls=True)
+                result = ocr.ocr(tmp_path)
                 
                 ocr_text = []
                 if result:
@@ -120,7 +190,7 @@ async def process_document_background(document_id: UUID, file_bytes: bytes, file
         - title (string): A short, descriptive title.
         - description (string): A 1-2 sentence summary.
         - keywords (list of strings): 3-5 relevant keywords.
-        - ai_category (string): Choose ONE from: Invoice, Purchase Order, Agreement, Customer Document, Bank Statement, Government Letter, Receipt, Miscellaneous.
+        - ai_category (string): Choose ONE from: Invoice, Purchase Order, Agreement, Customer Document, Bank Statement, Generation Statement, Receipt, Miscellaneous.
         - invoice_number (string or null): Extract the invoice number if present, otherwise null.
         - customer_details (string or null): Extract customer name and address if present, otherwise null.
         - amount (number or null): Extract the total amount or net amount as a number if present, otherwise null.
@@ -150,6 +220,9 @@ async def process_document_background(document_id: UUID, file_bytes: bytes, file
                 "ai_category": "Miscellaneous"
             }
 
+        predicted_category = normalize_ai_category(metadata.get("ai_category"))
+        metadata["ai_category"] = predicted_category
+
         # 3. Generate Embeddings & Store in ChromaDB
         # We chunk the text roughly to avoid embedding limits
         chunk_size = 1000
@@ -167,21 +240,37 @@ async def process_document_background(document_id: UUID, file_bytes: bytes, file
             # Update Document AI Category
             doc = await session.get(Document, document_id)
             if doc:
-                doc.ai_category = metadata.get("ai_category", "Miscellaneous")
+                previous_ai_category = doc.ai_category
+                doc.ai_category = predicted_category
+
+                # Keep the effective category in sync with AI unless an admin has overridden it.
+                if doc.category is None or doc.category == previous_ai_category:
+                    doc.category = predicted_category
             
-            # Insert Metadata
-            doc_meta = DocumentMetadata(
-                id=uuid.uuid4(),
-                document_id=document_id,
-                title=metadata.get("title", file_name),
-                description=metadata.get("description", ""),
-                keywords=metadata.get("keywords", []),
-                invoice_number=metadata.get("invoice_number"),
-                customer_details=metadata.get("customer_details"),
-                amount=metadata.get("amount") if isinstance(metadata.get("amount"), (int, float)) else None,
-                gst_number=metadata.get("gst_number")
-            )
-            session.add(doc_meta)
+            # Insert or Update Metadata
+            result_meta = await session.execute(select(DocumentMetadata).where(DocumentMetadata.document_id == document_id))
+            doc_meta = result_meta.scalar_one_or_none()
+            if doc_meta:
+                doc_meta.title = metadata.get("title", file_name)
+                doc_meta.description = metadata.get("description", "")
+                doc_meta.keywords = metadata.get("keywords", [])
+                doc_meta.invoice_number = metadata.get("invoice_number")
+                doc_meta.customer_details = metadata.get("customer_details")
+                doc_meta.amount = metadata.get("amount") if isinstance(metadata.get("amount"), (int, float)) else None
+                doc_meta.gst_number = metadata.get("gst_number")
+            else:
+                doc_meta = DocumentMetadata(
+                    id=uuid.uuid4(),
+                    document_id=document_id,
+                    title=metadata.get("title", file_name),
+                    description=metadata.get("description", ""),
+                    keywords=metadata.get("keywords", []),
+                    invoice_number=metadata.get("invoice_number"),
+                    customer_details=metadata.get("customer_details"),
+                    amount=metadata.get("amount") if isinstance(metadata.get("amount"), (int, float)) else None,
+                    gst_number=metadata.get("gst_number")
+                )
+                session.add(doc_meta)
             
             # Update DocumentAI state
             result = await session.execute(select(DocumentAI).where(DocumentAI.document_id == document_id))

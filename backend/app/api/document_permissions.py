@@ -13,6 +13,7 @@ from app.models.documents import Document
 from app.models.users import User
 from app.models.activity import ActivityLog
 from app.schemas.document_permissions import DocumentPermissionCreate, DocumentPermissionUpdate, DocumentPermissionResponse
+from app.services.notification_service import notify_user
 
 router = APIRouter()
 
@@ -82,6 +83,8 @@ async def grant_permission(
     await log_activity(db, current_user.id, f"GRANT_PERMISSION to {target_user.email}", "document", document_id)
     await db.commit()
     await db.refresh(perm, ["user"])
+    
+    await notify_user(db, target_user.id, "Permission Granted", f"You have been granted access to document {doc.display_name or doc.file_name}")
     return perm
 
 @router.put("/{document_id}/permissions/{user_id}", response_model=DocumentPermissionResponse)
@@ -110,8 +113,9 @@ async def update_permission(
     await log_activity(db, current_user.id, f"UPDATE_PERMISSION for {perm.user.email}", "document", document_id)
     await db.commit()
     await db.refresh(perm)
-    await log_activity(db=db, user_id=current_user.id, action="Update Permission", module="Document Permissions", object_affected=f"Permission ID: {permission_id}")
-    await db.commit()
+    
+    doc = await db.get(Document, document_id)
+    await notify_user(db, user_id, "Permission Updated", f"Your permissions for document {doc.display_name or doc.file_name} have been updated")
     return perm
 
 @router.delete("/{document_id}/permissions/{user_id}")
@@ -138,6 +142,7 @@ async def revoke_permission(
     await log_activity(db, current_user.id, f"REVOKE_PERMISSION from {email}", "document", document_id)
     await db.commit()
     
-    await log_activity(db=db, user_id=current_user.id, action="Revoke Permission", module="Document Permissions", object_affected=f"Permission ID: {permission_id}")
-    await db.commit()
+    doc = await db.get(Document, document_id)
+    await notify_user(db, user_id, "Permission Revoked", f"Your access to document {doc.display_name or doc.file_name} has been revoked")
+    
     return {"message": "Permission revoked"}

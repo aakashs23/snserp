@@ -6,18 +6,20 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.database.session import get_db
 from app.middleware.auth import get_current_user
 from app.middleware.rbac import RequireRole
-from app.models.invoices import Invoice
+from app.models.invoices import Invoice, InvoiceStatus
 from app.models.users import User
 from app.models.customers import Customer
 from app.repositories.base import BaseRepository
 from app.schemas.invoices import InvoiceCreate, InvoiceResponse, InvoiceUpdate
 from app.services.activity_service import log_activity
+from app.services.notification_service import notify_admins
 from app.services.pdf_generator import generate_invoice_pdf
 from app.config.supabase import supabase
 
@@ -142,6 +144,9 @@ async def create_invoice(
         except Exception as e:
             print(f"Failed to upload PDF: {e}")
             
+    await log_activity(db=db, user_id=current_user.id, action="Create", module="Invoices", object_affected=f"Invoice ID: {invoice.id}")
+    await notify_admins(db, "Invoice Created", f"User {current_user.email} created invoice {invoice.invoice_number} for {invoice.net_amount}")
+
     # Refresh to get relations properly
     query = select(Invoice).options(selectinload(Invoice.customer)).where(Invoice.id == invoice.id)
     result = await db.execute(query)
@@ -163,7 +168,15 @@ async def update_invoice(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Invoice not found",
         )
+    
+    was_paid = invoice.status == InvoiceStatus.PAID
+    
     updated = await repo.update(invoice, body.model_dump(exclude_unset=True))
+    
+    is_paid_now = updated.status == InvoiceStatus.PAID
+    if not was_paid and is_paid_now:
+        await notify_admins(db, "Invoice Paid", f"Invoice {updated.invoice_number} has been marked as Paid")
+
     await log_activity(db=db, user_id=_current_user.id, action="Update", module="Invoices", object_affected=f"Invoice ID: {invoice_id}")
     await db.commit()
     return updated

@@ -24,6 +24,7 @@ from app.api.calculator import router as calculator_router
 from app.api.activity import router as activity_router
 from app.api.loans import router as loans_router
 from app.api.users import router as users_router
+from app.api.notifications import router as notifications_router
 
 
 from app.services.cleanup import delete_expired_trash_loop
@@ -88,3 +89,4 @@ app.include_router(calculator_router, prefix="/api/v1/calculator", tags=["Calcul
 app.include_router(activity_router, prefix="/api/v1/activity", tags=["Activity Logs"])
 app.include_router(loans_router, prefix="/api/v1/loans", tags=["Loans"])
 app.include_router(users_router, prefix="/api/v1/users", tags=["Users"])
+app.include_router(notifications_router, prefix="/api/v1/notifications", tags=["Notifications"])

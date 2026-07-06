@@ -16,6 +16,8 @@ class ChatResponse(BaseModel):
     session_id: str
     answer: str
     citations: List[Citation]
+    confidence: Optional[float] = None
+    provider: Optional[str] = None
 
 class ChatMessageResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)

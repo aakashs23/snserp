@@ -1,3 +1,4 @@
+import asyncio
 import uuid
 import json
 import logging
@@ -6,13 +7,14 @@ import fitz  # PyMuPDF
 from datetime import datetime
 from uuid import UUID
 
-from langchain_ollama import OllamaEmbeddings, OllamaLLM
 import chromadb
 
 from app.config.settings import settings
 from app.database.session import async_session_factory
 from sqlalchemy import select
 from app.models.documents import Document, DocumentMetadata, DocumentAI
+from app.services.ai_service import ai_generate, ai_embed
+from app.services.chroma_utils import ensure_chroma_collection
 
 logger = logging.getLogger(__name__)
 
@@ -29,19 +31,7 @@ ALLOWED_AI_CATEGORIES = {
 
 # Initialize ChromaDB persistent client
 chroma_client = chromadb.PersistentClient(path=settings.chroma_db_path)
-collection = chroma_client.get_or_create_collection(name="snserp_documents")
-
-# Initialize Ollama LLM and Embeddings
-llm = OllamaLLM(
-    base_url=settings.ollama_base_url,
-    model=settings.llm_model,
-    temperature=0.0
-)
-
-embeddings = OllamaEmbeddings(
-    base_url=settings.ollama_base_url,
-    model=settings.embedding_model
-)
+collection = ensure_chroma_collection(chroma_client, "snserp_documents")
 
 import tempfile
 import os
@@ -200,7 +190,7 @@ async def process_document_background(document_id: UUID, file_bytes: bytes, file
         {extracted_text[:4000]}  # Limit text to avoid context window issues
         """
         
-        metadata_json_str = llm.invoke(prompt)
+        metadata_json_str, _ = await ai_generate(prompt, temperature=0.0)
         metadata = {}
         try:
             # Strip markdown code blocks if the LLM adds them
@@ -229,8 +219,10 @@ async def process_document_background(document_id: UUID, file_bytes: bytes, file
         chunks = [extracted_text[i:i+chunk_size] for i in range(0, len(extracted_text), chunk_size)]
         
         if chunks:
+            embeddings = await asyncio.gather(*(ai_embed(chunk) for chunk in chunks))
             collection.add(
                 documents=chunks,
+                embeddings=embeddings,
                 metadatas=[{"document_id": str(document_id), "file_name": file_name} for _ in chunks],
                 ids=[f"{str(document_id)}_chunk_{i}" for i in range(len(chunks))]
             )

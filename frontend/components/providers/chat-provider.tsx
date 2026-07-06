@@ -8,6 +8,9 @@ export interface Citation {
   document_id: string
   file_name: string
   snippet: string
+  page_number?: number | null
+  chunk_index?: number | null
+  relevance_score?: number | null
 }
 
 export interface ChatMessage {

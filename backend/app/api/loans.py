@@ -14,6 +14,7 @@ from app.models.users import User
 from app.repositories.base import BaseRepository
 from app.schemas.loans import LoanCreate, LoanResponse, LoanUpdate
 from app.services.activity_service import log_activity
+from app.services.notification_service import notify_admins
 
 router = APIRouter()
 
@@ -160,6 +161,10 @@ async def update_loan(
         module="Loans",
         object_affected=f"Loan ID: {loan.id}"
     )
+    
+    if body.status == "defaulted":
+        await notify_admins(db, "Loan Due", f"Loan {loan.loan_name} is overdue/defaulted.")
+        
     await db.commit()
     
     return updated

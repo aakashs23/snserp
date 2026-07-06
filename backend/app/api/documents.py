@@ -15,6 +15,7 @@ from app.schemas.documents import DocumentResponse, DocumentCombinedResponse, Sh
 from app.config.supabase import supabase
 from app.services.ai_pipeline import process_document_background
 from app.services.activity_service import log_activity
+from app.services.notification_service import notify_admins
 
 router = APIRouter()
 
@@ -88,6 +89,7 @@ async def upload_document(
     )
     doc = result.scalar_one()
     await log_activity(db=db, user_id=current_user.id, action="Upload", module="Documents", object_affected=f"Document ID: {doc_id}")
+    await notify_admins(db, "Document Uploaded", f"User {current_user.email} uploaded a new document: {doc.display_name or doc.file_name}")
     await db.commit()
     return DocumentCombinedResponse.from_document(doc)
 

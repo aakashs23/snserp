@@ -12,6 +12,7 @@ from app.models.users import User, Role
 from app.schemas.users import UserResponse, RoleResponse, UserCreate, UserUpdate
 from app.middleware.auth import get_current_user, require_roles
 from app.config.supabase import supabase
+from app.services.notification_service import notify_admins
 
 router = APIRouter()
 
@@ -88,7 +89,9 @@ async def create_user(
         result = await db.execute(
             select(User).options(selectinload(User.role)).where(User.id == user_record.id)
         )
-        return result.scalar_one()
+        created_user = result.scalar_one()
+        await notify_admins(db, "User Created", f"New user {created_user.full_name} ({created_user.email}) was created.")
+        return created_user
     except Exception as e:
         await db.rollback()
         # Rollback auth if DB fails
@@ -124,7 +127,12 @@ async def update_user(
     result = await db.execute(
         select(User).options(selectinload(User.role)).where(User.id == user_id)
     )
-    return result.scalar_one()
+    updated_user = result.scalar_one()
+    
+    if payload.is_active is False:
+        await notify_admins(db, "User Disabled", f"User {updated_user.full_name} ({updated_user.email}) has been disabled.")
+        
+    return updated_user
 
 @router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_user(

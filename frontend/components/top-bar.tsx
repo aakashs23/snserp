@@ -6,6 +6,7 @@ import { Separator } from "@/components/ui/separator"
 import { Button } from "@/components/ui/button"
 import { ThemeToggle } from "@/components/theme-toggle"
 import { useChat } from "@/components/providers/chat-provider"
+import { NotificationCenter } from "@/components/notification-center"
 
 export function TopBar() {
   const { toggleChat } = useChat()
@@ -23,11 +24,7 @@ export function TopBar() {
         <Button variant="ghost" size="icon" className="h-9 w-9 relative" onClick={toggleChat} title="AI Assistant">
           <Sparkles className="h-4.5 w-4.5 text-primary" />
         </Button>
-        <Button variant="ghost" size="icon" className="h-9 w-9 relative">
-          <Bell className="h-4 w-4" />
-          <span className="absolute top-1.5 right-1.5 h-2 w-2 rounded-full bg-accent" />
-          <span className="sr-only">Notifications</span>
-        </Button>
+        <NotificationCenter />
         <ThemeToggle />
       </div>
     </header>

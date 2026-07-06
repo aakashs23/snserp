@@ -2,12 +2,23 @@
 
 import uuid
 from datetime import date
+from enum import Enum
 
 from sqlalchemy import Date, ForeignKey, Numeric, String, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
+
+
+class InvoiceStatus(str, Enum):
+    """Supported invoice lifecycle states."""
+
+    DRAFT = "draft"
+    SENT = "sent"
+    PAID = "paid"
+    OVERDUE = "overdue"
+    CANCELLED = "cancelled"
 
 
 class Invoice(UUIDPrimaryKeyMixin, TimestampMixin, Base):

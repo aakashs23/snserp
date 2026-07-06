@@ -3,6 +3,9 @@
 Uses the provider-agnostic ai_service for all LLM and embedding
 interactions.  All heavy calls run in threads to keep the async
 event-loop free, preventing asyncpg/greenlet connection errors.
+
+Phase 6: Advanced RAG — query expansion → retrieve 20 → cross-encoder
+rerank → parent context → compress → generate.
 """
 
 import uuid
@@ -27,6 +30,12 @@ from app.middleware.auth import get_current_user
 from app.database.session import get_db
 from app.services.ai_service import ai_generate, ai_embed, extract_confidence
 from app.services.chroma_utils import ensure_chroma_collection, is_embedding_dimension_mismatch
+from app.services.rag_service import (
+    expand_query,
+    rerank_chunks,
+    retrieve_parent_context,
+    compress_context,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -95,11 +104,8 @@ async def _rewrite_query(query: str, history: List[AIChatMessage]) -> str:
     return rewritten.strip()
 
 
-async def _hybrid_search(db: AsyncSession, current_user: User, query: str):
-    """Combine ChromaDB semantic search with Postgres metadata search,
-    filtered by the current user's document permissions."""
-
-    # 0. Get allowed document IDs
+async def _get_permitted_doc_ids(db: AsyncSession, current_user: User) -> list[str]:
+    """Fetch document IDs the current user is allowed to access."""
     doc_query = select(Document.id).where(Document.is_deleted == False)  # noqa: E712
     if current_user.role and current_user.role.name in ["viewer", "accountant"]:
         from app.models.document_permissions import DocumentPermission
@@ -112,112 +118,151 @@ async def _hybrid_search(db: AsyncSession, current_user: User, query: str):
                 Document.status == "approved",
             )
         )
+    result = await db.execute(doc_query)
+    return [str(doc_id) for doc_id in result.scalars().all()]
 
-    permitted_docs_res = await db.execute(doc_query)
-    permitted_doc_ids = [str(doc_id) for doc_id in permitted_docs_res.scalars().all()]
 
-    if not permitted_doc_ids:
-        return {"documents": [], "metadatas": []}
-
-    # 1. Postgres keyword search
+async def _keyword_search(
+    db: AsyncSession,
+    permitted_doc_ids: list[str],
+    query: str,
+) -> tuple[list[str], list]:
+    """Postgres keyword search over document metadata.
+    Returns (matched_doc_ids, raw_matches)."""
     query_tokens = [t for t in query.split() if len(t) > 3]
-    db_matched_ids: list[str] = []
-    db_matches = []
+    if not query_tokens:
+        return [], []
 
-    if query_tokens:
-        filters = []
-        for term in query_tokens:
-            pattern = f"%{term}%"
-            filters.extend([
-                Document.original_name.ilike(pattern),
-                Document.ai_category.ilike(pattern),
-                DocumentMetadata.title.ilike(pattern),
-                DocumentMetadata.description.ilike(pattern),
-            ])
+    filters = []
+    for term in query_tokens:
+        pattern = f"%{term}%"
+        filters.extend([
+            Document.original_name.ilike(pattern),
+            Document.ai_category.ilike(pattern),
+            DocumentMetadata.title.ilike(pattern),
+            DocumentMetadata.description.ilike(pattern),
+            DocumentMetadata.invoice_number.ilike(pattern),
+            DocumentMetadata.customer_details.ilike(pattern),
+            DocumentMetadata.gst_number.ilike(pattern),
+        ])
 
-        db_result = await db.execute(
-            select(Document.id, Document.original_name, DocumentAI.ocr_text)
-            .outerjoin(DocumentMetadata, DocumentMetadata.document_id == Document.id)
-            .outerjoin(DocumentAI, DocumentAI.document_id == Document.id)
-            .where(
-                Document.id.in_([uuid.UUID(id_str) for id_str in permitted_doc_ids]),
-                or_(*filters),
-            )
-            .limit(10)
+    db_result = await db.execute(
+        select(Document.id, Document.original_name, DocumentAI.ocr_text)
+        .outerjoin(DocumentMetadata, DocumentMetadata.document_id == Document.id)
+        .outerjoin(DocumentAI, DocumentAI.document_id == Document.id)
+        .where(
+            Document.id.in_([uuid.UUID(id_str) for id_str in permitted_doc_ids]),
+            or_(*filters),
         )
-        db_matches = db_result.all()
-        db_matched_ids = [str(m.id) for m in db_matches]
+        .limit(15)
+    )
+    matches = db_result.all()
+    return [str(m.id) for m in matches], matches
 
-    # 2. Embed the query (non-blocking via ai_service)
-    query_embedding = await ai_embed(query)
 
-    # 3. ChromaDB semantic search
-    chroma_results = {"documents": [[]], "metadatas": [[]]}
+async def _chroma_search(
+    query_embedding: list[float],
+    doc_id_filter: list[str],
+    n_results: int = 20,
+) -> dict:
+    """Search ChromaDB with dimension-mismatch safety."""
     try:
-        chroma_results = collection.query(
+        return collection.query(
             query_embeddings=[query_embedding],
-            where={"document_id": {"$in": permitted_doc_ids}},
-            n_results=10,
+            where={"document_id": {"$in": doc_id_filter}},
+            n_results=n_results,
             include=["documents", "metadatas"],
         )
     except Exception as exc:
         if is_embedding_dimension_mismatch(exc):
-            logger.warning(
-                "Skipping Chroma semantic search due to legacy embedding mismatch. "
-                "Existing vectors need to be reindexed with the current embedding model: %s",
-                exc,
-            )
-        else:
-            raise
+            logger.warning("Chroma search skipped due to embedding mismatch: %s", exc)
+            return {"documents": [[]], "metadatas": [[]]}
+        raise
 
-    # Boost: pull additional chunks from DB-matched documents
-    if db_matched_ids and chroma_results.get("documents") is not None:
+
+async def _multi_query_retrieve(
+    queries: list[str],
+    permitted_doc_ids: list[str],
+    n_results_per_query: int = 20,
+) -> tuple[list[str], list[dict]]:
+    """Embed multiple query variants and merge ChromaDB results."""
+    all_docs: list[str] = []
+    all_metas: list[dict] = []
+    seen: set[str] = set()
+
+    for q in queries:
+        embedding = await ai_embed(q)
+        results = await _chroma_search(embedding, permitted_doc_ids, n_results_per_query)
+
+        if results["documents"] and results["documents"][0]:
+            for i, doc in enumerate(results["documents"][0]):
+                # Use first 100 chars as dedup key
+                key = doc[:100]
+                if key not in seen:
+                    seen.add(key)
+                    all_docs.append(doc)
+                    all_metas.append(results["metadatas"][0][i] if results["metadatas"] else {})
+
+    return all_docs, all_metas
+
+
+async def _hybrid_search(
+    db: AsyncSession,
+    current_user: User,
+    standalone_query: str,
+) -> tuple[list[str], list[dict]]:
+    """Full hybrid retrieval pipeline:
+    1. Permission filter
+    2. Query expansion (multi-query)
+    3. ChromaDB semantic search (Top-20 per variant)
+    4. Postgres keyword search boost
+    5. OCR fallback
+    """
+    permitted_doc_ids = await _get_permitted_doc_ids(db, current_user)
+    if not permitted_doc_ids:
+        return [], []
+
+    # Query expansion
+    queries = await expand_query(standalone_query)
+    logger.info(f"Expanded queries: {queries}")
+
+    # Multi-query ChromaDB retrieval
+    all_docs, all_metas = await _multi_query_retrieve(queries, permitted_doc_ids)
+
+    # Keyword search boost
+    db_matched_ids, db_matches = await _keyword_search(db, permitted_doc_ids, standalone_query)
+
+    if db_matched_ids:
         try:
-            db_chroma_results = collection.query(
-                query_embeddings=[query_embedding],
-                where={"document_id": {"$in": db_matched_ids}},
-                n_results=5,
-                include=["documents", "metadatas"],
-            )
-            if (
-                db_chroma_results["documents"]
-                and len(db_chroma_results["documents"][0]) > 0
-            ):
-                if not chroma_results["documents"] or not chroma_results["documents"][0]:
-                    chroma_results = db_chroma_results
-                else:
-                    existing = set(chroma_results["documents"][0])
-                    for i, doc in enumerate(db_chroma_results["documents"][0]):
-                        if doc not in existing:
-                            chroma_results["documents"][0].append(doc)
-                            chroma_results["metadatas"][0].append(
-                                db_chroma_results["metadatas"][0][i]
-                            )
+            q_embed = await ai_embed(standalone_query)
+            boost = await _chroma_search(q_embed, db_matched_ids, 10)
+            if boost["documents"] and boost["documents"][0]:
+                seen = {d[:100] for d in all_docs}
+                for i, doc in enumerate(boost["documents"][0]):
+                    key = doc[:100]
+                    if key not in seen:
+                        seen.add(key)
+                        all_docs.append(doc)
+                        all_metas.append(boost["metadatas"][0][i] if boost["metadatas"] else {})
         except Exception as e:
             if is_embedding_dimension_mismatch(e):
-                logger.warning(
-                    "Skipping Chroma boost search due to embedding mismatch: %s",
-                    e,
-                )
+                logger.warning("Chroma boost skipped due to embedding mismatch: %s", e)
             else:
-                logger.warning(f"Chroma filtered search failed: {e}")
+                logger.warning(f"Chroma keyword-boost failed: {e}")
 
-    # 4. Fallback: inject raw OCR text from Postgres if vector search empty
-    if (
-        not chroma_results.get("documents") or not chroma_results["documents"][0]
-    ) and db_matches:
-        docs = []
-        metas = []
+    # OCR text fallback if nothing from vectors
+    if not all_docs and db_matches:
         for match in db_matches:
             if match.ocr_text:
-                docs.append(match.ocr_text[:4000])
-                metas.append(
-                    {"file_name": match.original_name, "document_id": str(match.id)}
-                )
-        chroma_results["documents"] = [docs]
-        chroma_results["metadatas"] = [metas]
+                all_docs.append(match.ocr_text[:4000])
+                all_metas.append({
+                    "file_name": match.original_name,
+                    "document_id": str(match.id),
+                    "page_number": 1,
+                    "chunk_index": 0,
+                })
 
-    return chroma_results
+    return all_docs, all_metas
 
 
 # ─── Main query endpoint ──────────────────────────────────────────────────────
@@ -266,25 +311,48 @@ async def chat_query(
         db.add(user_msg)
         await db.flush()
 
-        # ── Retrieve context ──
-        results = await _hybrid_search(db, current_user, standalone_query)
+        # ── Phase 6: Advanced retrieval pipeline ──
+        all_docs, all_metas = await _hybrid_search(db, current_user, standalone_query)
 
+        # Cross-encoder reranking: Top-20 → Top-5
+        if all_docs:
+            ranked = await rerank_chunks(
+                standalone_query, all_docs, all_metas, top_k=5
+            )
+        else:
+            ranked = []
+
+        # Parent context retrieval: expand with ±1 neighbors
+        if ranked:
+            ranked = retrieve_parent_context(ranked, all_docs, all_metas)
+
+        # Context compression: deduplicate & merge contiguous
+        if ranked:
+            ranked = compress_context(ranked)
+
+        # ── Build citations ──
         citations: list[Citation] = []
         context_chunks: list[str] = []
 
-        if results["documents"] and len(results["documents"]) > 0:
-            for i, doc in enumerate(results["documents"][0]):
-                meta = results["metadatas"][0][i] if results["metadatas"] else {}
-                context_chunks.append(
-                    f"[Source: {meta.get('file_name', 'Unknown')}]\n{doc}"
+        for text, meta, score in ranked:
+            file_name = meta.get("file_name", "Unknown")
+            page_num = meta.get("page_number")
+            chunk_idx = meta.get("chunk_index")
+
+            page_label = f" (Page {page_num})" if page_num else ""
+            context_chunks.append(
+                f"[Source: {file_name}{page_label}]\n{text}"
+            )
+            citations.append(
+                Citation(
+                    document_id=meta.get("document_id", ""),
+                    file_name=file_name,
+                    snippet=text[:200] + "..." if len(text) > 200 else text,
+                    page_number=page_num if isinstance(page_num, int) else None,
+                    chunk_index=chunk_idx if isinstance(chunk_idx, int) else None,
+                    relevance_score=round(float(score), 4),
                 )
-                citations.append(
-                    Citation(
-                        document_id=meta.get("document_id", ""),
-                        file_name=meta.get("file_name", "Unknown"),
-                        snippet=doc[:200] + "..." if len(doc) > 200 else doc,
-                    )
-                )
+            )
 
         context = "\n\n---\n\n".join(context_chunks)
 
@@ -297,7 +365,7 @@ async def chat_query(
                 "\"I could not find the answer to this in the uploaded documents.\"\n"
                 "Do NOT use outside knowledge.\n"
                 "When multiple documents are relevant, synthesize information across them "
-                "and cite which documents support each point.\n"
+                "and cite which documents and page numbers support each point.\n"
                 "Be thorough yet concise.\n"
                 "At the very end of your answer, on a new line, add a confidence tag "
                 "like [CONFIDENCE: 0.85] indicating how confident you are (0.0–1.0).\n\n"

@@ -111,16 +111,25 @@ export function AIChatDrawer() {
                   
                   {msg.citations && msg.citations.length > 0 && (
                     <div className="flex flex-col gap-1.5 mt-1 w-full">
+                      <p className="text-[10px] text-muted-foreground font-semibold uppercase tracking-wider">Sources</p>
                       <div className="flex flex-wrap gap-1.5">
                         {msg.citations.map((cite, i) => (
                           <button
                             key={i}
                             onClick={() => handlePreview(cite.document_id)}
-                            className="flex items-center gap-1 text-[11px] font-medium bg-muted border rounded-md px-2 py-1 hover:bg-accent hover:text-white transition-colors"
+                            className="group flex items-center gap-1 text-[11px] font-medium bg-muted border rounded-md px-2 py-1.5 hover:bg-accent hover:text-white transition-colors relative"
                             title={cite.snippet}
                           >
-                            <FileText className="size-3" />
-                            <span className="truncate max-w-[120px]">{cite.file_name}</span>
+                            <FileText className="size-3 flex-shrink-0" />
+                            <span className="truncate max-w-[100px]">{cite.file_name}</span>
+                            {cite.page_number != null && (
+                              <span className="text-[9px] opacity-70 ml-0.5">p.{cite.page_number}</span>
+                            )}
+                            {cite.relevance_score != null && (
+                              <span className="text-[9px] bg-background/20 rounded px-1 ml-0.5">
+                                {Math.round(cite.relevance_score * 100)}%
+                              </span>
+                            )}
                           </button>
                         ))}
                       </div>

@@ -14,7 +14,10 @@ from app.database.session import async_session_factory
 from sqlalchemy import select
 from app.models.documents import Document, DocumentMetadata, DocumentAI
 from app.services.ai_service import ai_generate, ai_embed
-from app.services.chroma_utils import ensure_chroma_collection
+from app.services.chroma_utils import (
+    ensure_chroma_collection,
+    is_embedding_dimension_mismatch,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -109,8 +112,9 @@ async def process_document_background(document_id: UUID, file_bytes: bytes, file
     try:
         logger.info(f"Starting AI pipeline for document {document_id}")
         
-        # 1. Extract text
+        # 1. Extract text (page-aware for PDFs)
         extracted_text = ""
+        pages: list[tuple[int, str]] = []  # (page_number, page_text)
         is_pdf = mime_type == "application/pdf"
         is_image = mime_type and mime_type.startswith("image/")
         is_docx = (
@@ -120,18 +124,21 @@ async def process_document_background(document_id: UUID, file_bytes: bytes, file
         
         if is_pdf:
             try:
-                # Use PyMuPDF to extract text from PDF in memory
                 doc = fitz.open(stream=file_bytes, filetype="pdf")
-                for page in doc:
-                    extracted_text += page.get_text()
+                for page_num, page in enumerate(doc, start=1):
+                    page_text = page.get_text()
+                    if page_text.strip():
+                        pages.append((page_num, page_text))
+                    extracted_text += page_text
                 doc.close()
             except Exception as e:
                 logger.error(f"PyMuPDF extraction failed: {e}")
         elif mime_type and mime_type.startswith("text/"):
-            # Fallback for plain text
             extracted_text = file_bytes.decode('utf-8', errors='ignore')
+            pages = [(1, extracted_text)]
         elif is_docx:
             extracted_text = extract_docx_text(file_bytes)
+            pages = [(1, extracted_text)]
 
         # If it's an image, or a PDF with very little selectable text (like a scanned PDF), use PaddleOCR
         if is_image or (is_pdf and len(extracted_text.strip()) < 50):
@@ -139,7 +146,6 @@ async def process_document_background(document_id: UUID, file_bytes: bytes, file
             try:
                 ocr = get_ocr()
                 
-                # PaddleOCR requires a file path for multi-page PDFs or robust image reading
                 suffix = ".pdf" if is_pdf else (".jpg" if "jpeg" in mime_type else ".png")
                 with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
                     tmp.write(file_bytes)
@@ -157,11 +163,14 @@ async def process_document_background(document_id: UUID, file_bytes: bytes, file
                 
                 paddle_text = "\n".join(ocr_text)
                 
-                # For PDFs, combine PyMuPDF text and OCR text if needed, or just use OCR if it's much longer
                 if is_pdf and len(extracted_text.strip()) > 0:
                     extracted_text += "\n" + paddle_text
                 else:
                     extracted_text = paddle_text
+                
+                # For OCR results, treat as single page
+                if not pages:
+                    pages = [(1, extracted_text)]
                     
                 os.remove(tmp_path)
             except Exception as e:
@@ -170,6 +179,11 @@ async def process_document_background(document_id: UUID, file_bytes: bytes, file
         if not extracted_text.strip():
             logger.warning(f"No text extracted for document {document_id}")
             extracted_text = "No text could be extracted."
+            pages = [(1, extracted_text)]
+
+        # Ensure pages is populated for non-PDF types
+        if not pages:
+            pages = [(1, extracted_text)]
 
         # 2. Extract metadata using LLM
         prompt = f"""
@@ -193,7 +207,6 @@ async def process_document_background(document_id: UUID, file_bytes: bytes, file
         metadata_json_str, _ = await ai_generate(prompt, temperature=0.0)
         metadata = {}
         try:
-            # Strip markdown code blocks if the LLM adds them
             cleaned_json = metadata_json_str.strip()
             if cleaned_json.startswith("```json"):
                 cleaned_json = cleaned_json[7:-3].strip()
@@ -213,19 +226,62 @@ async def process_document_background(document_id: UUID, file_bytes: bytes, file
         predicted_category = normalize_ai_category(metadata.get("ai_category"))
         metadata["ai_category"] = predicted_category
 
-        # 3. Generate Embeddings & Store in ChromaDB
-        # We chunk the text roughly to avoid embedding limits
-        chunk_size = 1000
-        chunks = [extracted_text[i:i+chunk_size] for i in range(0, len(extracted_text), chunk_size)]
-        
-        if chunks:
-            embeddings = await asyncio.gather(*(ai_embed(chunk) for chunk in chunks))
-            collection.add(
-                documents=chunks,
-                embeddings=embeddings,
-                metadatas=[{"document_id": str(document_id), "file_name": file_name} for _ in chunks],
-                ids=[f"{str(document_id)}_chunk_{i}" for i in range(len(chunks))]
+        # 3. Semantic Chunking + Embeddings → ChromaDB
+        # Chroma indexing is useful for semantic search, but it should not
+        # fail the whole document if the vector store is temporarily stale.
+        chroma_indexed = True
+        try:
+            from app.services.rag_service import semantic_chunk_pages
+
+            chunk_records = semantic_chunk_pages(
+                pages,
+                max_tokens=800,
+                overlap_tokens=100,
             )
+            total_chunks = len(chunk_records)
+
+            if chunk_records:
+                chunk_texts = [cr["text"] for cr in chunk_records]
+                embeddings = await asyncio.gather(*(ai_embed(ct) for ct in chunk_texts))
+
+                chroma_docs = []
+                chroma_metas = []
+                chroma_ids = []
+                chroma_embeddings = []
+
+                for i, cr in enumerate(chunk_records):
+                    chroma_docs.append(cr["text"])
+                    chroma_metas.append({
+                        "document_id": str(document_id),
+                        "file_name": file_name,
+                        "page_number": cr["page_number"],
+                        "chunk_index": cr["chunk_index"],
+                        "total_chunks": total_chunks,
+                    })
+                    chroma_ids.append(f"{str(document_id)}_chunk_{cr['chunk_index']}")
+                    chroma_embeddings.append(embeddings[i])
+
+                collection.add(
+                    documents=chroma_docs,
+                    embeddings=chroma_embeddings,
+                    metadatas=chroma_metas,
+                    ids=chroma_ids,
+                )
+        except Exception as exc:
+            chroma_indexed = False
+            if is_embedding_dimension_mismatch(exc):
+                logger.warning(
+                    "Skipping Chroma indexing for document %s due to embedding dimension mismatch. "
+                    "The existing collection needs a rebuild to match the current embedding model: %s",
+                    document_id,
+                    exc,
+                )
+            else:
+                logger.warning(
+                    "Skipping Chroma indexing for document %s; OCR and metadata will still be saved: %s",
+                    document_id,
+                    exc,
+                )
 
         # 4. Update Database
         async with async_session_factory() as session:
@@ -271,6 +327,7 @@ async def process_document_background(document_id: UUID, file_bytes: bytes, file
                 doc_ai.ocr_text = extracted_text
                 doc_ai.summary = metadata.get("description", "")
                 doc_ai.embedding_status = "completed"
+                doc_ai.chromadb_id = str(document_id) if chroma_indexed else None
                 doc_ai.processed_at = datetime.utcnow()
             else:
                 doc_ai = DocumentAI(
@@ -279,6 +336,7 @@ async def process_document_background(document_id: UUID, file_bytes: bytes, file
                     ocr_text=extracted_text,
                     summary=metadata.get("description", ""),
                     embedding_status="completed",
+                    chromadb_id=str(document_id) if chroma_indexed else None,
                     processed_at=datetime.utcnow()
                 )
                 session.add(doc_ai)

@@ -11,6 +11,9 @@ class Citation(BaseModel):
     document_id: str
     file_name: str
     snippet: str
+    page_number: Optional[int] = None
+    chunk_index: Optional[int] = None
+    relevance_score: Optional[float] = None
 
 class ChatResponse(BaseModel):
     session_id: str

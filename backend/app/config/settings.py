@@ -34,6 +34,15 @@ class Settings(BaseSettings):
     # CORS
     cors_origins: str = "http://localhost:3000"
 
+    # Upload limits
+    max_upload_size_mb: int = 20
+
+    # Rate limits (requests per minute)
+    rate_limit_auth: str = "10/minute"
+    rate_limit_ai: str = "20/minute"
+    rate_limit_upload: str = "10/minute"
+    rate_limit_default: str = "100/minute"
+
     # AI / Ollama
     ollama_base_url: str = "http://localhost:11434"
     llm_model: str = "qwen3:8b"

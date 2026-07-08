@@ -12,10 +12,12 @@ import uuid
 import logging
 from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request as FastAPIRequest
 import chromadb
 from sqlalchemy import or_, select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 
 from app.config.settings import settings
 from app.schemas.chat import (
@@ -40,6 +42,7 @@ from app.services.rag_service import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+_chat_limiter = Limiter(key_func=get_remote_address)
 
 # Initialize ChromaDB persistent client
 chroma_client = chromadb.PersistentClient(path=settings.chroma_db_path)
@@ -267,7 +270,9 @@ async def _hybrid_search(
 
 # ─── Main query endpoint ──────────────────────────────────────────────────────
 @router.post("/query", response_model=ChatResponse)
+@_chat_limiter.limit(settings.rate_limit_ai)
 async def chat_query(
+    http_request: FastAPIRequest,
     request: ChatRequest,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),

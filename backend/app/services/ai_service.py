@@ -226,8 +226,46 @@ def get_fallback_provider() -> Optional[LLMProvider]:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Orchestrated calls with automatic failover
+# Orchestrated calls with automatic failover and retry
 # ─────────────────────────────────────────────────────────────────────────────
+from tenacity import (
+    retry,
+    stop_after_attempt,
+    wait_exponential,
+    retry_if_exception_type,
+    before_sleep_log,
+)
+
+_TRANSIENT_EXCEPTIONS = (
+    ConnectionError,
+    TimeoutError,
+    OSError,
+    RuntimeError,
+)
+
+
+async def _call_provider_with_retry(
+    provider: LLMProvider,
+    method: str,
+    *args,
+    **kwargs,
+):
+    """Call a provider method with up to 3 retries and exponential backoff."""
+
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=10),
+        retry=retry_if_exception_type(_TRANSIENT_EXCEPTIONS),
+        before_sleep=before_sleep_log(logger, logging.WARNING),
+        reraise=True,
+    )
+    async def _inner():
+        fn = getattr(provider, method)
+        return await fn(*args, **kwargs)
+
+    return await _inner()
+
+
 async def ai_generate(prompt: str, *, temperature: float = 0.2) -> tuple[str, str]:
     """Generate text using primary provider with automatic fallback.
 
@@ -239,14 +277,18 @@ async def ai_generate(prompt: str, *, temperature: float = 0.2) -> tuple[str, st
 
     if primary:
         try:
-            result = await primary.generate(prompt, temperature=temperature)
+            result = await _call_provider_with_retry(
+                primary, "generate", prompt, temperature=temperature,
+            )
             return result, primary.name
         except Exception as e:
-            logger.warning(f"Primary provider '{primary.name}' failed: {e}")
+            logger.warning(f"Primary provider '{primary.name}' failed after retries: {e}")
 
     if fallback:
         try:
-            result = await fallback.generate(prompt, temperature=temperature)
+            result = await _call_provider_with_retry(
+                fallback, "generate", prompt, temperature=temperature,
+            )
             logger.info(f"Fallback provider '{fallback.name}' succeeded.")
             return result, fallback.name
         except Exception as e:
@@ -266,13 +308,13 @@ async def ai_embed(text: str) -> list[float]:
 
     if primary:
         try:
-            return await primary.embed(text)
+            return await _call_provider_with_retry(primary, "embed", text)
         except Exception as e:
-            logger.warning(f"Primary embedding provider '{primary.name}' failed: {e}")
+            logger.warning(f"Primary embedding provider '{primary.name}' failed after retries: {e}")
 
     if fallback:
         try:
-            return await fallback.embed(text)
+            return await _call_provider_with_retry(fallback, "embed", text)
         except Exception as e:
             logger.error(f"Fallback embedding provider '{fallback.name}' also failed: {e}")
 

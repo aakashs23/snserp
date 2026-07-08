@@ -1,16 +1,22 @@
 """Sri Naga Sai ERP - FastAPI Backend Entry Point."""
 
+import logging
 import uuid
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.util import get_remote_address
 from sqlalchemy import func, select
 
 from app.config.settings import settings
 from app.database.session import async_session_factory
 from app.models.users import Role
 from app.config.supabase import ensure_documents_bucket
+from app.middleware.logging import RequestLoggingMiddleware
 
 from app.api.health import router as health_router
 from app.api.auth import router as auth_router
@@ -30,9 +36,27 @@ from app.api.notifications import router as notifications_router
 from app.services.cleanup import delete_expired_trash_loop
 import asyncio
 
+# ─── Logging setup ────────────────────────────────────────────────────────────
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)-8s %(name)s | %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+logger = logging.getLogger("snserp")
+
+# ─── Rate limiter (shared across routers) ─────────────────────────────────────
+limiter = Limiter(key_func=get_remote_address, default_limits=[settings.rate_limit_default])
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan: seed default roles and ensure storage buckets on startup."""
+    # Warn if running production with default JWT secret
+    if settings.app_env != "development" and settings.jwt_secret == "dev-secret-change-in-production":
+        logger.warning(
+            "⚠️  JWT_SECRET is still the default value! Set a strong secret for production."
+        )
+
     # Ensure Supabase storage buckets exist
     ensure_documents_bucket()
     
@@ -51,6 +75,7 @@ async def lifespan(app: FastAPI):
     # Start background tasks
     cleanup_task = asyncio.create_task(delete_expired_trash_loop())
     
+    logger.info("Sri Naga Sai ERP started successfully (env=%s)", settings.app_env)
     yield
     
     # Cancel background tasks on shutdown
@@ -67,16 +92,40 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS
+# ─── Attach rate limiter to app ───────────────────────────────────────────────
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# ─── Request logging middleware ───────────────────────────────────────────────
+app.add_middleware(RequestLoggingMiddleware)
+
+# ─── CORS ─────────────────────────────────────────────────────────────────────
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins_list,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["X-Request-ID"],
 )
 
-# Routers
+# ─── Global exception handlers ───────────────────────────────────────────────
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    """Catch all unhandled exceptions and return a standardised JSON response."""
+    request_id = getattr(request.state, "request_id", "unknown")
+    logger.exception("Unhandled exception | request_id=%s", request_id)
+    return JSONResponse(
+        status_code=500,
+        content={
+            "detail": "An internal server error occurred. Please try again later.",
+            "request_id": request_id,
+        },
+        headers={"X-Request-ID": request_id},
+    )
+
+
+# ─── Routers ─────────────────────────────────────────────────────────────────
 app.include_router(health_router, tags=["Health"])
 app.include_router(auth_router, prefix="/api/v1/auth", tags=["Auth"])
 app.include_router(customers_router, prefix="/api/v1/customers", tags=["Customers"])

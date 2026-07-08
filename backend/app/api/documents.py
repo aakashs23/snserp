@@ -1,8 +1,10 @@
 import uuid
+import re
+import logging
 from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, BackgroundTasks, Query
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, BackgroundTasks, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, desc, func
+from sqlalchemy import select, desc, func, and_
 from sqlalchemy.orm import selectinload
 
 from app.database.session import get_db
@@ -13,14 +15,31 @@ from app.middleware.auth import get_current_user
 from app.middleware.rbac import RequireRole
 from app.schemas.documents import DocumentResponse, DocumentCombinedResponse, ShareRequest, DocumentUpdate
 from app.config.supabase import supabase
+from app.config.settings import settings
 from app.services.ai_pipeline import process_document_background
 from app.services.activity_service import log_activity
 from app.services.notification_service import notify_admins
 
 router = APIRouter()
+logger = logging.getLogger("snserp.documents")
+
+# ── Filename sanitization ─────────────────────────────────────────────────────
+_UNSAFE_CHARS = re.compile(r'[^\w\s\-.]')
+_MULTI_DOTS = re.compile(r'\.{2,}')
+
+def _sanitize_filename(name: str) -> str:
+    """Strip unsafe characters from a user-provided filename."""
+    name = name.strip()
+    name = _UNSAFE_CHARS.sub('_', name)
+    name = _MULTI_DOTS.sub('.', name)
+    # Prevent path traversal
+    name = name.replace('..', '_').lstrip('.')
+    return name or "unnamed"
+
 
 @router.post("/upload", response_model=DocumentCombinedResponse)
 async def upload_document(
+    request: Request,
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     current_user: User = Depends(RequireRole(["admin", "employee"])),
@@ -29,20 +48,47 @@ async def upload_document(
     # 1. Read file bytes
     file_bytes = await file.read()
 
-    # Validate file type
+    # ── File size validation ──────────────────────────────────────────────
+    max_bytes = settings.max_upload_size_mb * 1024 * 1024
+    if len(file_bytes) > max_bytes:
+        raise HTTPException(
+            status_code=413,
+            detail=f"File too large. Maximum allowed size is {settings.max_upload_size_mb} MB."
+        )
+
+    # ── Sanitize original filename ────────────────────────────────────────
+    original_name = _sanitize_filename(file.filename or "unnamed")
+
+    # ── Validate file type ────────────────────────────────────────────────
     from app.services.ai_pipeline import SUPPORTED_MIMES
     if file.content_type not in SUPPORTED_MIMES:
         # Also accept by extension as a fallback (browsers sometimes send wrong MIME)
-        ext = (file.filename.rsplit(".", 1)[-1] if "." in file.filename else "").lower()
+        ext = (original_name.rsplit(".", 1)[-1] if "." in original_name else "").lower()
         accepted_extensions = {"pdf", "png", "jpg", "jpeg", "tiff", "tif", "bmp", "webp", "docx", "doc", "txt", "csv"}
         if ext not in accepted_extensions:
             raise HTTPException(
                 status_code=400,
                 detail=f"Unsupported file type '{file.content_type}'. Accepted formats: PDF, PNG, JPG, JPEG, TIFF, BMP, WEBP, DOCX, TXT, CSV."
             )
+
+    # ── Duplicate detection ───────────────────────────────────────────────
+    dup_query = select(Document).where(
+        and_(
+            Document.original_name == original_name,
+            Document.file_size == len(file_bytes),
+            Document.uploaded_by == current_user.id,
+            Document.is_deleted == False,
+        )
+    )
+    dup_result = await db.execute(dup_query)
+    if dup_result.scalar_one_or_none():
+        raise HTTPException(
+            status_code=409,
+            detail=f"A document with the same name and size already exists: '{original_name}'."
+        )
     
     # 2. Upload to Supabase Storage
-    file_extension = file.filename.split('.')[-1] if '.' in file.filename else ''
+    file_extension = original_name.split('.')[-1] if '.' in original_name else ''
     safe_filename = f"{uuid.uuid4()}.{file_extension}"
     storage_path = f"{current_user.id}/{safe_filename}"
     
@@ -53,15 +99,15 @@ async def upload_document(
             file_options={"content-type": file.content_type}
         )
     except Exception as e:
-        # Supabase Python client might raise exception if bucket doesn't exist
-        raise HTTPException(status_code=500, detail=f"Storage upload failed: {str(e)}")
+        logger.error("Storage upload failed: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail="Storage upload failed. Please try again.")
 
     # 3. Create Document DB record
     doc_id = uuid.uuid4()
     new_doc = Document(
         id=doc_id,
         file_name=safe_filename,
-        original_name=file.filename,
+        original_name=original_name,
         storage_path=storage_path,
         file_size=len(file_bytes),
         mime_type=file.content_type,
@@ -85,7 +131,7 @@ async def upload_document(
         process_document_background,
         document_id=doc_id,
         file_bytes=file_bytes,
-        file_name=file.filename,
+        file_name=original_name,
         mime_type=file.content_type
     )
     

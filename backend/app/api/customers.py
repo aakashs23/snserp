@@ -19,6 +19,37 @@ from app.services.activity_service import log_activity
 router = APIRouter()
 
 
+@router.get("/export")
+async def export_customers(
+    format: str = Query("csv", description="Export format: csv, xlsx, or pdf"),
+    search: Optional[str] = Query(None, description="Search by customer name"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Export customers data."""
+    from app.services.export_service import generate_export_response
+    
+    query = select(Customer)
+    if search:
+        query = query.where(Customer.customer_name.ilike(f"%{search}%"))
+        
+    result = await db.execute(query)
+    customers = result.scalars().all()
+    
+    data = []
+    for c in customers:
+        data.append({
+            "customer_id": str(c.id),
+            "customer_name": c.customer_name,
+            "email": c.email,
+            "phone": c.phone,
+            "gst_number": c.gst_number,
+            "address": c.address,
+            "created_at": c.created_at,
+        })
+        
+    return generate_export_response(data, format, "Customers Directory", current_user.full_name or current_user.email)
+
 @router.get("/", response_model=list[CustomerResponse])
 async def list_customers(
     skip: int = Query(0, ge=0),

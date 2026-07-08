@@ -19,6 +19,8 @@ import {
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { RoleGuard } from "@/components/role-guard"
+import { ExportMenu } from "@/components/ui/export-menu"
+import { downloadFile } from "@/lib/utils"
 
 interface MonthlyRevenueItem {
   month: string
@@ -76,6 +78,24 @@ export default function RevenueDashboardPage() {
     return () => clearTimeout(t)
   }, [fetchAnalytics])
 
+  const handleExport = async (format: "csv" | "xlsx" | "pdf") => {
+    try {
+      const supabase = createClient()
+      const { data: { session } } = await supabase.auth.getSession()
+
+      const res = await fetch(`${API_URL}/api/v1/analytics/revenue/export?format=${format}`, {
+        headers: { Authorization: `Bearer ${session?.access_token}` },
+      })
+      if (!res.ok) throw new Error("Export failed")
+        
+      const blob = await res.blob()
+      const ext = format === "xlsx" ? "xlsx" : format
+      downloadFile(blob, `revenue_report_${new Date().getFullYear()}.${ext}`)
+    } catch (error) {
+      toast.error("Failed to export data")
+    }
+  }
+
   const formatCurrency = (n: number) => 
     new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(n)
 
@@ -107,13 +127,16 @@ export default function RevenueDashboardPage() {
   return (
     <RoleGuard allowedRoles={["admin", "employee"]}>
       <div className="space-y-6">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight font-[family-name:var(--font-heading)]">
-            Revenue Dashboard
-          </h1>
-          <p className="text-muted-foreground mt-1">
-            Financial overview and analytics for {new Date().getFullYear()}.
-          </p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight font-[family-name:var(--font-heading)]">
+              Revenue Dashboard
+            </h1>
+            <p className="text-muted-foreground mt-1">
+              Financial overview and analytics for {new Date().getFullYear()}.
+            </p>
+          </div>
+          <ExportMenu onExport={handleExport} />
         </div>
 
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">

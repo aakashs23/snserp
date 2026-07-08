@@ -94,6 +94,35 @@ async def get_loans_dashboard(
     }
 
 
+@router.get("/export")
+async def export_loans(
+    format: str = Query("csv", description="Export format: csv, xlsx, or pdf"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Export loans data."""
+    from app.services.export_service import generate_export_response
+    query = select(Loan).order_by(Loan.created_at.desc())
+    result = await db.execute(query)
+    loans = result.scalars().all()
+    
+    # Convert to dicts for export
+    data = []
+    for loan in loans:
+        data.append({
+            "loan_id": str(loan.id),
+            "loan_name": loan.loan_name,
+            "bank_name": loan.bank_name,
+            "principal_amount": loan.principal_amount,
+            "interest_rate": loan.interest_rate_annual,
+            "start_date": loan.start_date,
+            "end_date": loan.end_date,
+            "status": loan.status,
+            "created_at": loan.created_at,
+        })
+        
+    return generate_export_response(data, format, "Loans Register", current_user.full_name or current_user.email)
+
 @router.get("/", response_model=list[LoanResponse])
 async def list_loans(
     skip: int = Query(0, ge=0),

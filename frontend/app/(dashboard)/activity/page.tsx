@@ -32,6 +32,8 @@ interface ActivityLog {
 }
 
 import { RoleGuard } from "@/components/role-guard"
+import { ExportMenu } from "@/components/ui/export-menu"
+import { downloadFile } from "@/lib/utils"
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
 
@@ -75,6 +77,24 @@ export default function ActivityLogsPage() {
     return () => clearTimeout(t)
   }, [page, fetchLogs])
 
+  const handleExport = async (format: "csv" | "xlsx" | "pdf") => {
+    try {
+      const supabase = createClient()
+      const { data: { session } } = await supabase.auth.getSession()
+
+      const res = await fetch(`${API_URL}/api/v1/activity/export?format=${format}`, {
+        headers: { Authorization: `Bearer ${session?.access_token}` },
+      })
+      if (!res.ok) throw new Error("Export failed")
+        
+      const blob = await res.blob()
+      const ext = format === "xlsx" ? "xlsx" : format
+      downloadFile(blob, `activity_logs_${new Date().getTime()}.${ext}`)
+    } catch (error) {
+      toast.error("Failed to export data")
+    }
+  }
+
   const getActionIcon = (action: string) => {
     const normalizedAction = action.toLowerCase()
 
@@ -99,13 +119,16 @@ export default function ActivityLogsPage() {
   return (
     <RoleGuard allowedRoles={["admin"]}>
       <div className="space-y-6">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight font-[family-name:var(--font-heading)]">
-            Activity Logs
-          </h1>
-          <p className="text-muted-foreground mt-1">
-            System audit trail for security and monitoring.
-          </p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight font-[family-name:var(--font-heading)]">
+              Activity Logs
+            </h1>
+            <p className="text-muted-foreground mt-1">
+              System audit trail for security and monitoring.
+            </p>
+          </div>
+          <ExportMenu onExport={handleExport} />
         </div>
 
         <Card>

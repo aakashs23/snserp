@@ -28,6 +28,18 @@ async def upload_document(
 ):
     # 1. Read file bytes
     file_bytes = await file.read()
+
+    # Validate file type
+    from app.services.ai_pipeline import SUPPORTED_MIMES
+    if file.content_type not in SUPPORTED_MIMES:
+        # Also accept by extension as a fallback (browsers sometimes send wrong MIME)
+        ext = (file.filename.rsplit(".", 1)[-1] if "." in file.filename else "").lower()
+        accepted_extensions = {"pdf", "png", "jpg", "jpeg", "tiff", "tif", "bmp", "webp", "docx", "doc", "txt", "csv"}
+        if ext not in accepted_extensions:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unsupported file type '{file.content_type}'. Accepted formats: PDF, PNG, JPG, JPEG, TIFF, BMP, WEBP, DOCX, TXT, CSV."
+            )
     
     # 2. Upload to Supabase Storage
     file_extension = file.filename.split('.')[-1] if '.' in file.filename else ''

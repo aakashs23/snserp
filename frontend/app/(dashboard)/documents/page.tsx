@@ -321,7 +321,7 @@ export default function DocumentsPage() {
               className="hidden" 
               ref={fileInputRef} 
               onChange={handleUpload}
-              accept=".pdf,.png,.jpg,.jpeg,.doc,.docx"
+              accept=".pdf,.png,.jpg,.jpeg,.tiff,.tif,.bmp,.webp,.doc,.docx"
             />
             <Button onClick={() => fileInputRef.current?.click()} disabled={uploading}>
               <UploadCloud className="h-4 w-4 mr-2" />

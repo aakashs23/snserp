@@ -26,6 +26,78 @@ from app.config.supabase import supabase
 router = APIRouter()
 
 
+@router.get("/export")
+async def export_invoices(
+    format: str = Query("csv", description="Export format: csv, xlsx, or pdf"),
+    status_filter: Optional[str] = Query(None, alias="status", description="Filter by invoice status"),
+    customer_id: Optional[UUID] = Query(None, description="Filter by customer ID"),
+    from_date: Optional[date] = Query(None, description="Invoice date from (inclusive)"),
+    to_date: Optional[date] = Query(None, description="Invoice date to (inclusive)"),
+    search: Optional[str] = Query(None, description="Search by invoice number or customer name"),
+    sort_by: Optional[str] = Query("date", description="Sort column (date, customer, amount, status)"),
+    sort_order: Optional[str] = Query("desc", description="Sort order (asc, desc)"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Export invoices data."""
+    from app.services.export_service import generate_export_response
+    from sqlalchemy import or_
+    
+    query = select(Invoice).join(Customer).options(selectinload(Invoice.customer))
+
+    if status_filter and status_filter != "all":
+        query = query.where(Invoice.status == status_filter)
+    if customer_id:
+        query = query.where(Invoice.customer_id == customer_id)
+    if from_date:
+        query = query.where(Invoice.invoice_date >= from_date)
+    if to_date:
+        query = query.where(Invoice.invoice_date <= to_date)
+    if search:
+        search_term = f"%{search}%"
+        query = query.where(
+            or_(
+                Invoice.invoice_number.ilike(search_term),
+                Customer.customer_name.ilike(search_term)
+            )
+        )
+
+    # Sorting
+    if sort_by == "date":
+        sort_col = Invoice.invoice_date
+    elif sort_by == "customer":
+        sort_col = Customer.customer_name
+    elif sort_by == "amount":
+        sort_col = Invoice.gross_amount
+    elif sort_by == "status":
+        sort_col = Invoice.status
+    else:
+        sort_col = Invoice.created_at
+
+    if sort_order == "desc":
+        query = query.order_by(sort_col.desc())
+    else:
+        query = query.order_by(sort_col.asc())
+
+    result = await db.execute(query)
+    invoices = result.scalars().all()
+    
+    data = []
+    for inv in invoices:
+        data.append({
+            "invoice_number": inv.invoice_number,
+            "customer_name": inv.customer.customer_name if inv.customer else "",
+            "invoice_date": inv.invoice_date,
+            "status": inv.status,
+            "gross_amount": inv.gross_amount,
+            "open_access_charges": inv.open_access_charges,
+            "round_off": inv.round_off,
+            "payment_mode": inv.payment_mode or "",
+            "created_at": inv.created_at,
+        })
+        
+    return generate_export_response(data, format, "Invoice Register", current_user.full_name or current_user.email)
+
 @router.get("/", response_model=list[InvoiceResponse])
 async def list_invoices(
     skip: int = Query(0, ge=0),

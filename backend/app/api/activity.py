@@ -35,6 +35,39 @@ class ActivityLogPaginated(BaseModel):
     page: int
     size: int
 
+@router.get("/export")
+async def export_activity_logs(
+    format: str = Query("csv", description="Export format: csv, xlsx, or pdf"),
+    current_user: User = Depends(require_roles(["admin"])),
+    db: AsyncSession = Depends(get_db)
+):
+    """Export activity logs."""
+    from app.services.export_service import generate_export_response
+    
+    stmt = (
+        select(ActivityLog, User.full_name, User.email)
+        .outerjoin(User, ActivityLog.user_id == User.id)
+        .order_by(desc(ActivityLog.created_at))
+    )
+    
+    result = await db.execute(stmt)
+    rows = result.all()
+    
+    data = []
+    for log, full_name, email in rows:
+        data.append({
+            "timestamp": log.created_at,
+            "user_name": full_name or "System",
+            "user_email": email or "",
+            "action": log.action,
+            "module": log.module or "",
+            "entity_type": log.entity_type or "",
+            "object_affected": log.object_affected or "",
+            "ip_address": log.ip_address or ""
+        })
+        
+    return generate_export_response(data, format, "Activity Logs", current_user.full_name or current_user.email)
+
 @router.get("/", response_model=ActivityLogPaginated)
 async def get_activity_logs(
     page: int = Query(1, ge=1),

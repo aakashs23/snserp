@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, text
 from decimal import Decimal
@@ -19,6 +19,43 @@ from app.models.activity import ActivityLog
 from app.api.activity import ActivityLogResponse
 
 router = APIRouter()
+
+@router.get("/revenue/export")
+async def export_revenue(
+    format: str = Query("csv", description="Export format: csv, xlsx, or pdf"),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Export revenue dashboard data."""
+    from app.services.export_service import generate_export_response
+    current_year = datetime.date.today().year
+
+    monthly_sql = text("""
+        SELECT 
+            to_char(invoice_date, 'YYYY-MM') as month,
+            COALESCE(SUM(net_amount), 0) as total_revenue,
+            COALESCE(SUM(CASE WHEN status = 'paid' THEN net_amount ELSE 0 END), 0) as paid_revenue,
+            COALESCE(SUM(CASE WHEN status != 'paid' AND status != 'cancelled' THEN net_amount ELSE 0 END), 0) as pending_revenue,
+            COUNT(id) as total_invoices
+        FROM invoices
+        WHERE EXTRACT(YEAR FROM invoice_date) = :year
+        GROUP BY month
+        ORDER BY month ASC
+    """)
+    result = await db.execute(monthly_sql, {"year": current_year})
+    rows = result.fetchall()
+    
+    data = []
+    for row in rows:
+        data.append({
+            "month": row.month,
+            "total_revenue": row.total_revenue,
+            "paid_revenue": row.paid_revenue,
+            "pending_revenue": row.pending_revenue,
+            "total_invoices": row.total_invoices
+        })
+        
+    return generate_export_response(data, format, f"Revenue Report {current_year}", current_user.full_name or current_user.email)
 
 @router.get("/revenue", response_model=RevenueDashboardResponse)
 async def get_revenue_dashboard(

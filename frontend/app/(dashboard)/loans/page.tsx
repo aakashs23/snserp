@@ -59,6 +59,8 @@ interface AmortizationRow {
 }
 
 import { RoleGuard } from "@/components/role-guard"
+import { ExportMenu } from "@/components/ui/export-menu"
+import { downloadFile } from "@/lib/utils"
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
 
@@ -209,6 +211,22 @@ export default function LoansPage() {
     setDialogOpen(true)
   }
 
+  const handleExport = async (format: "csv" | "xlsx" | "pdf") => {
+    try {
+      const headers = await getAuthHeaders()
+      let url = `${API_URL}/api/v1/loans/export?format=${format}`
+      
+      const res = await fetch(url, { headers })
+      if (!res.ok) throw new Error("Export failed")
+        
+      const blob = await res.blob()
+      const ext = format === "xlsx" ? "xlsx" : format
+      downloadFile(blob, `loans_export_${new Date().getTime()}.${ext}`)
+    } catch (error) {
+      toast.error("Failed to export data")
+    }
+  }
+
   const formatCurrency = (n: number | null | undefined) =>
     n != null
       ? new Intl.NumberFormat("en-IN", {
@@ -230,13 +248,15 @@ export default function LoansPage() {
               Track bank loans and amortization schedules.
             </p>
           </div>
-          <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); if (!open) setEditingLoan(null); }}>
-            <DialogTrigger asChild>
-              <Button onClick={openNew}>
-                <Plus className="h-4 w-4 mr-2" />
-                Add Loan
-              </Button>
-            </DialogTrigger>
+          <div className="flex items-center gap-2">
+            <ExportMenu onExport={handleExport} />
+            <Dialog open={dialogOpen} onOpenChange={(open) => { setDialogOpen(open); if (!open) setEditingLoan(null); }}>
+              <DialogTrigger asChild>
+                <Button onClick={openNew}>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add Loan
+                </Button>
+              </DialogTrigger>
             <DialogContent className="sm:max-w-[550px]">
               <form onSubmit={handleSubmit}>
                 <DialogHeader>
@@ -296,6 +316,7 @@ export default function LoansPage() {
               </form>
             </DialogContent>
           </Dialog>
+          </div>
         </div>
 
         {/* Dashboard Metrics */}

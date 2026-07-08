@@ -39,6 +39,8 @@ interface Customer {
 
 import { RoleGuard } from "@/components/role-guard"
 import { useAuth } from "@/components/providers/auth-provider"
+import { ExportMenu } from "@/components/ui/export-menu"
+import { downloadFile } from "@/lib/utils"
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
 
@@ -162,6 +164,23 @@ export default function CustomersPage() {
     }
   }
 
+  const handleExport = async (format: "csv" | "xlsx" | "pdf") => {
+    try {
+      const headers = await getAuthHeaders()
+      let url = `${API_URL}/api/v1/customers/export?format=${format}`
+      if (search) url += `&search=${encodeURIComponent(search)}`
+      
+      const res = await fetch(url, { headers })
+      if (!res.ok) throw new Error("Export failed")
+        
+      const blob = await res.blob()
+      const ext = format === "xlsx" ? "xlsx" : format
+      downloadFile(blob, `customers_export_${new Date().getTime()}.${ext}`)
+    } catch (error) {
+      toast.error("Failed to export data")
+    }
+  }
+
   const openEdit = (customer: Customer) => {
     setEditingCustomer(customer)
     setDialogOpen(true)
@@ -229,7 +248,7 @@ export default function CustomersPage() {
           )}
         </div>
 
-        {/* Search */}
+        {/* Search & Export */}
         <div className="flex items-center gap-4">
           <div className="relative flex-1 max-w-sm">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -240,6 +259,7 @@ export default function CustomersPage() {
               className="pl-9"
             />
           </div>
+          <ExportMenu onExport={handleExport} />
         </div>
 
         {/* Table */}

@@ -35,6 +35,8 @@ import {
 } from "@/components/ui/dialog"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useAuth } from "@/components/providers/auth-provider"
+import { ExportMenu } from "@/components/ui/export-menu"
+import { downloadFile } from "@/lib/utils"
 
 interface Invoice {
   id: string
@@ -194,6 +196,34 @@ export default function InvoiceRegisterPage() {
     }
   }
 
+  const handleExport = async (format: "csv" | "xlsx" | "pdf") => {
+    try {
+      const headers = await getAuthHeaders()
+      let url = `${API_URL}/api/v1/invoices/export?format=${format}`
+      
+      const queryParams = []
+      if (searchQuery) queryParams.push(`search=${encodeURIComponent(searchQuery)}`)
+      if (statusFilter !== "all") queryParams.push(`status=${encodeURIComponent(statusFilter)}`)
+      
+      // We pass the same sort params as fetchInvoices
+      if (sortBy) queryParams.push(`sort_by=${encodeURIComponent(sortBy)}`)
+      if (sortOrder) queryParams.push(`sort_order=${encodeURIComponent(sortOrder)}`)
+
+      if (queryParams.length > 0) {
+        url += `&${queryParams.join("&")}`
+      }
+      
+      const res = await fetch(url, { headers })
+      if (!res.ok) throw new Error("Export failed")
+        
+      const blob = await res.blob()
+      const ext = format === "xlsx" ? "xlsx" : format
+      downloadFile(blob, `invoices_export_${new Date().getTime()}.${ext}`)
+    } catch (error) {
+      toast.error("Failed to export data")
+    }
+  }
+
   const formatCurrency = (n: number | null) =>
     n != null
       ? new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", minimumFractionDigits: 2 }).format(n)
@@ -222,14 +252,17 @@ export default function InvoiceRegisterPage() {
             View and manage all generated invoices.
           </p>
         </div>
-        {(roleName === "admin" || roleName === "accountant") && (
-          <Button asChild>
-            <Link href="/invoices/generator">
-              <FilePlus className="h-4 w-4 mr-2" />
-              New Invoice
-            </Link>
-          </Button>
-        )}
+        <div className="flex items-center gap-2">
+          <ExportMenu onExport={handleExport} />
+          {(roleName === "admin" || roleName === "accountant") && (
+            <Button asChild>
+              <Link href="/invoices/generator">
+                <FilePlus className="h-4 w-4 mr-2" />
+                New Invoice
+              </Link>
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Filters and Search */}

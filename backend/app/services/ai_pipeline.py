@@ -3,9 +3,14 @@ import uuid
 import json
 import logging
 import io
-import fitz  # PyMuPDF
+import os
+import tempfile
+import zipfile
 from datetime import datetime
 from uuid import UUID
+from xml.etree import ElementTree
+
+import fitz  # PyMuPDF
 
 import chromadb
 
@@ -36,10 +41,36 @@ ALLOWED_AI_CATEGORIES = {
 chroma_client = chromadb.PersistentClient(path=settings.chroma_db_path)
 collection = ensure_chroma_collection(chroma_client, "snserp_documents")
 
-import tempfile
-import os
-import zipfile
-from xml.etree import ElementTree
+# Supported image MIME types for OCR processing
+SUPPORTED_IMAGE_MIMES = {
+    "image/png",
+    "image/jpeg",
+    "image/jpg",
+    "image/tiff",
+    "image/bmp",
+    "image/webp",
+}
+
+# All MIME types the pipeline can process
+SUPPORTED_MIMES = (
+    SUPPORTED_IMAGE_MIMES
+    | {
+        "application/pdf",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "text/plain",
+        "text/csv",
+    }
+)
+
+# Map MIME type → temp-file extension for PaddleOCR
+_IMAGE_SUFFIX_MAP = {
+    "image/png": ".png",
+    "image/jpeg": ".jpg",
+    "image/jpg": ".jpg",
+    "image/tiff": ".tiff",
+    "image/bmp": ".bmp",
+    "image/webp": ".webp",
+}
 
 # Lazy load OCR to prevent memory bloat on startup if unused
 _ocr_instance = None
@@ -50,6 +81,30 @@ def get_ocr():
         from paddleocr import PaddleOCR
         _ocr_instance = PaddleOCR(use_textline_orientation=True, lang='en')
     return _ocr_instance
+
+
+def _image_suffix(mime_type: str) -> str:
+    """Return a temp-file extension appropriate for the given MIME type."""
+    return _IMAGE_SUFFIX_MAP.get(mime_type, ".png")
+
+
+import re
+
+def clean_ocr_text(text: str) -> str:
+    """Clean raw OCR text by removing artifacts and normalizing whitespace."""
+    if not text:
+        return ""
+    
+    # Remove multiple spaces
+    cleaned = re.sub(r' +', ' ', text)
+    
+    # Remove isolated special characters often produced as OCR artifacts
+    cleaned = re.sub(r'(?m)^[^a-zA-Z0-9\n]{1,2}$', '', cleaned)
+    
+    # Normalize multiple newlines to a maximum of two
+    cleaned = re.sub(r'\n{3,}', '\n\n', cleaned)
+    
+    return cleaned.strip()
 
 
 def normalize_ai_category(raw_category: str | None) -> str:
@@ -142,11 +197,11 @@ async def process_document_background(document_id: UUID, file_bytes: bytes, file
 
         # If it's an image, or a PDF with very little selectable text (like a scanned PDF), use PaddleOCR
         if is_image or (is_pdf and len(extracted_text.strip()) < 50):
-            logger.info(f"Using PaddleOCR for document {document_id}")
+            logger.info(f"Using PaddleOCR for document {document_id} (mime: {mime_type})")
             try:
                 ocr = get_ocr()
                 
-                suffix = ".pdf" if is_pdf else (".jpg" if "jpeg" in mime_type else ".png")
+                suffix = ".pdf" if is_pdf else _image_suffix(mime_type)
                 with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
                     tmp.write(file_bytes)
                     tmp_path = tmp.name
@@ -155,22 +210,30 @@ async def process_document_background(document_id: UUID, file_bytes: bytes, file
                 
                 ocr_text = []
                 if result:
-                    for idx in range(len(result)):
-                        res = result[idx]
-                        if res:
-                            for line in res:
-                                ocr_text.append(line[1][0])
+                    # In PaddleOCR v3+, result is a list of OCRResult objects.
+                    # We need to access the .rec_texts attribute or dict key.
+                    for page_res in result:
+                        if hasattr(page_res, 'rec_texts') and page_res.rec_texts:
+                            ocr_text.extend(page_res.rec_texts)
+                        elif isinstance(page_res, dict) and 'rec_texts' in page_res:
+                            ocr_text.extend(page_res['rec_texts'])
                 
                 paddle_text = "\n".join(ocr_text)
+                logger.info(f"PaddleOCR extracted {len(paddle_text)} raw characters")
                 
                 if is_pdf and len(extracted_text.strip()) > 0:
                     extracted_text += "\n" + paddle_text
                 else:
                     extracted_text = paddle_text
                 
-                # For OCR results, treat as single page
-                if not pages:
-                    pages = [(1, extracted_text)]
+                # Apply text cleaning to remove artifacts and normalize whitespace
+                extracted_text = clean_ocr_text(extracted_text)
+                logger.info(f"Cleaned OCR text length: {len(extracted_text)} characters")
+
+                # Update pages for chunking. 
+                # If it was an image, pages is empty so we add it as page 1.
+                # If it was a scanned PDF, we replace pages with the combined text since page-level alignment is lost with PaddleOCR's current integration.
+                pages = [(1, extracted_text)]
                     
                 os.remove(tmp_path)
             except Exception as e:

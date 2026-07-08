@@ -40,8 +40,8 @@ class Settings(BaseSettings):
     embedding_model: str = "nomic-embed-text"
 
     # AI Provider Configuration
-    ai_primary_provider: str = "ollama"       # ollama | gemini | grok
-    ai_fallback_provider: str = "gemini"      # ollama | gemini | grok | none
+    ai_primary_provider: str = "gemini"       # ollama | gemini | grok
+    ai_fallback_provider: str = "grok"      # ollama | gemini | grok | none
     gemini_api_key: str = ""
     gemini_model: str = "gemini-2.5-flash"
     xai_api_key: str = ""

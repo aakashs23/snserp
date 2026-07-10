@@ -8,7 +8,7 @@ from sqlalchemy import text
 
 from app.database.session import async_session_factory
 from app.config.settings import settings
-from app.config.supabase import supabase
+from app.services.storage_service import storage_list_buckets
 
 router = APIRouter()
 logger = logging.getLogger("snserp.health")
@@ -51,7 +51,7 @@ async def readiness():
     # ── Storage check (Supabase) ──────────────────────────────────────────
     try:
         start = time.perf_counter()
-        supabase.storage.list_buckets()
+        await storage_list_buckets()
         storage_ms = (time.perf_counter() - start) * 1000
         checks["storage"] = {"status": "ok", "latency_ms": round(storage_ms, 1)}
     except Exception as e:

@@ -14,11 +14,11 @@ from app.models.document_permissions import DocumentPermission
 from app.middleware.auth import get_current_user
 from app.middleware.rbac import RequireRole
 from app.schemas.documents import DocumentResponse, DocumentCombinedResponse, ShareRequest, DocumentUpdate
-from app.config.supabase import supabase
 from app.config.settings import settings
 from app.services.ai_pipeline import process_document_background
 from app.services.activity_service import log_activity
 from app.services.notification_service import notify_admins
+from app.services.storage_service import storage_remove, storage_signed_url, storage_upload
 
 router = APIRouter()
 logger = logging.getLogger("snserp.documents")
@@ -93,7 +93,8 @@ async def upload_document(
     storage_path = f"{current_user.id}/{safe_filename}"
     
     try:
-        supabase.storage.from_("documents").upload(
+        await storage_upload(
+            "documents",
             path=storage_path,
             file=file_bytes,
             file_options={"content-type": file.content_type}
@@ -212,7 +213,7 @@ async def preview_document(
             raise HTTPException(status_code=403, detail="You do not have permission to access this document.")
         
     try:
-        res = supabase.storage.from_("documents").create_signed_url(doc.storage_path, 3600)
+        res = await storage_signed_url("documents", doc.storage_path, 3600)
         return {"url": res.get("signedURL")}
     except Exception as e:
         raise HTTPException(status_code=500, detail="Failed to generate preview URL")
@@ -242,7 +243,9 @@ async def download_document(
             raise HTTPException(status_code=403, detail="You do not have permission to download this document.")
         
     try:
-        res = supabase.storage.from_("documents").create_signed_url(doc.storage_path, 3600, options={"download": doc.original_name})
+        res = await storage_signed_url(
+            "documents", doc.storage_path, 3600, options={"download": doc.original_name}
+        )
         return {"url": res.get("signedURL")}
     except Exception as e:
         raise HTTPException(status_code=500, detail="Failed to generate download URL")
@@ -344,7 +347,7 @@ async def permanent_delete_document(
         
     # Delete from Supabase Storage
     try:
-        supabase.storage.from_("documents").remove([doc.storage_path])
+        await storage_remove("documents", [doc.storage_path])
     except Exception as e:
         print(f"Failed to delete from storage: {e}")
         

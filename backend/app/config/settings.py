@@ -56,6 +56,12 @@ class Settings(BaseSettings):
     xai_api_key: str = ""
     grok_model: str = "grok-3-mini"
 
+    # AI Resilience — tune per provider latency and rate limits
+    ai_request_timeout_seconds: float = 30.0
+    ai_max_concurrent_requests: int = 8
+    ai_circuit_breaker_threshold: int = 3
+    ai_circuit_breaker_reset_seconds: float = 30.0
+
     # ChromaDB
     chroma_db_path: str = str(PROJECT_ROOT / "backend" / "data" / "chromadb")
 

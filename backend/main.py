@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -16,6 +17,7 @@ from app.config.settings import settings
 from app.database.session import async_session_factory
 from app.models.users import Role
 from app.config.supabase import ensure_documents_bucket
+from app.middleware.compression import install_compression_exclusions
 from app.middleware.logging import RequestLoggingMiddleware
 
 from app.api.health import router as health_router
@@ -98,6 +100,11 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # ─── Request logging middleware ───────────────────────────────────────────────
 app.add_middleware(RequestLoggingMiddleware)
+
+# ─── Response compression ─────────────────────────────────────────────────────
+# Added after RequestLogging and before CORS, so it sits inside the CORS layer.
+install_compression_exclusions()
+app.add_middleware(GZipMiddleware, minimum_size=1000, compresslevel=6)
 
 # ─── CORS ─────────────────────────────────────────────────────────────────────
 app.add_middleware(

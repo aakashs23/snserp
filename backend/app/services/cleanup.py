@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import select
 from app.database.session import async_session_factory
 from app.models.documents import Document
-from app.config.supabase import supabase
+from app.services.storage_service import storage_remove
 
 async def delete_expired_trash_loop():
     """Background task that runs periodically to permanently delete documents older than 30 days in the trash."""
@@ -23,7 +23,7 @@ async def delete_expired_trash_loop():
                 for doc in expired_docs:
                     # 1. Delete from Supabase Storage
                     try:
-                        supabase.storage.from_("documents").remove([doc.storage_path])
+                        await storage_remove("documents", [doc.storage_path])
                     except Exception as e:
                         print(f"Cleanup Task: Failed to delete {doc.id} from storage: {e}")
                         

@@ -39,3 +39,5 @@ paddlepaddle
 # Utilities
 python-dotenv
 httpx
+slowapi
+tenacity

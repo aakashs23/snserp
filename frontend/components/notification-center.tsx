@@ -11,6 +11,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { createClient } from "@/utils/supabase/client"
+import { toast } from "sonner"
 
 const NOTIFICATIONS_API_BASE = "/api/v1/notifications/"
 
@@ -63,37 +64,44 @@ export function NotificationCenter() {
   }, [])
 
   const markAsRead = async (id: string) => {
-    try {
-      const supabase = createClient()
-      const { data: { session } } = await supabase.auth.getSession()
-      if (!session?.access_token) return
+    const supabase = createClient()
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session?.access_token) return
 
+    // Optimistic: flip the badge now, restore the snapshot if the server rejects.
+    const snapshot = notifications
+    setNotifications(prev => prev.map(n => n.id === id ? { ...n, is_read: true } : n))
+
+    try {
       const res = await fetch(`${NOTIFICATIONS_API_BASE}${id}/read`, {
         method: "POST",
         headers: { Authorization: `Bearer ${session.access_token}` }
       })
-      if (res.ok) {
-        setNotifications(prev => prev.map(n => n.id === id ? { ...n, is_read: true } : n))
-      }
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
     } catch (e) {
+      setNotifications(snapshot)
+      toast.error("Could not mark the notification as read.")
       console.error("Failed to mark as read", e)
     }
   }
 
   const markAllAsRead = async () => {
-    try {
-      const supabase = createClient()
-      const { data: { session } } = await supabase.auth.getSession()
-      if (!session?.access_token) return
+    const supabase = createClient()
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session?.access_token) return
 
+    const snapshot = notifications
+    setNotifications(prev => prev.map(n => ({ ...n, is_read: true })))
+
+    try {
       const res = await fetch(`${NOTIFICATIONS_API_BASE}read-all`, {
         method: "POST",
         headers: { Authorization: `Bearer ${session.access_token}` }
       })
-      if (res.ok) {
-        setNotifications(prev => prev.map(n => ({ ...n, is_read: true })))
-      }
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
     } catch (e) {
+      setNotifications(snapshot)
+      toast.error("Could not mark all notifications as read.")
       console.error("Failed to mark all as read", e)
     }
   }

@@ -12,10 +12,12 @@ import uuid
 import logging
 from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 import chromadb
 from sqlalchemy import or_, select, desc
 from sqlalchemy.ext.asyncio import AsyncSession
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 
 from app.config.settings import settings
 from app.schemas.chat import (
@@ -40,6 +42,7 @@ from app.services.rag_service import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+_chat_limiter = Limiter(key_func=get_remote_address)
 
 # Initialize ChromaDB persistent client
 chroma_client = chromadb.PersistentClient(path=settings.chroma_db_path)
@@ -267,20 +270,22 @@ async def _hybrid_search(
 
 # ─── Main query endpoint ──────────────────────────────────────────────────────
 @router.post("/query", response_model=ChatResponse)
+@_chat_limiter.limit(settings.rate_limit_ai)
 async def chat_query(
-    request: ChatRequest,
+    request: Request,
+    chat_request: ChatRequest,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     try:
         # ── Session management ──
-        session_id = request.session_id
+        session_id = chat_request.session_id
         history: list[AIChatMessage] = []
         if not session_id:
             new_session = AIChatSession(
                 id=uuid.uuid4(),
                 user_id=current_user.id,
-                title=request.message[:50],
+                title=chat_request.message[:50],
             )
             db.add(new_session)
             session_id = str(new_session.id)
@@ -298,15 +303,15 @@ async def chat_query(
                 raise HTTPException(status_code=400, detail="Invalid session_id")
 
         # ── Rewrite query using conversation context ──
-        standalone_query = await _rewrite_query(request.message, history)
-        logger.info(f"Original: {request.message} -> Standalone: {standalone_query}")
+        standalone_query = await _rewrite_query(chat_request.message, history)
+        logger.info(f"Original: {chat_request.message} -> Standalone: {standalone_query}")
 
         # ── Persist user message ──
         user_msg = AIChatMessage(
             id=uuid.uuid4(),
             session_id=uuid.UUID(session_id),
             role="user",
-            message=request.message,
+            message=chat_request.message,
         )
         db.add(user_msg)
         await db.flush()

@@ -8,7 +8,10 @@ Switching providers requires only configuration changes in .env.
 import asyncio
 import logging
 import re
+import time
 from abc import ABC, abstractmethod
+
+import httpx
 from functools import lru_cache
 from typing import Optional
 
@@ -226,8 +229,153 @@ def get_fallback_provider() -> Optional[LLMProvider]:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Orchestrated calls with automatic failover
+# Orchestrated calls with automatic failover and retry
 # ─────────────────────────────────────────────────────────────────────────────
+from tenacity import (
+    retry,
+    stop_after_attempt,
+    wait_exponential,
+    retry_if_exception_type,
+    before_sleep_log,
+)
+
+_TRANSIENT_EXCEPTIONS = (
+    ConnectionError,
+    TimeoutError,
+    OSError,
+    RuntimeError,
+    # httpx errors derive from Exception, not OSError, so the entries above do
+    # not catch them. TransportError covers connect/read/write/pool failures
+    # but deliberately excludes HTTPStatusError (a 4xx is not worth retrying).
+    httpx.TransportError,
+)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Circuit breaker
+# ─────────────────────────────────────────────────────────────────────────────
+class CircuitOpenError(RuntimeError):
+    """Raised when a provider's circuit is open and the call was not attempted."""
+
+
+class _CircuitBreaker:
+    """Per-provider breaker: opens after N consecutive failures, half-opens after a cooldown.
+
+    State is mutated only between awaits on a single event loop, so no lock is
+    needed. ponytail: if this ever runs under multiple event loops or threads,
+    guard _failures/_opened_at with a lock.
+    """
+
+    def __init__(self, name: str, threshold: int, reset_seconds: float):
+        self.name = name
+        self.threshold = threshold
+        self.reset_seconds = reset_seconds
+        self._failures = 0
+        self._opened_at: float | None = None
+
+    @property
+    def is_open(self) -> bool:
+        return self._opened_at is not None
+
+    def allow(self) -> bool:
+        """True if a call may proceed (closed, or half-open probe after cooldown)."""
+        if self._opened_at is None:
+            return True
+        if time.monotonic() - self._opened_at >= self.reset_seconds:
+            logger.info("Circuit for '%s' is half-open; allowing a probe call.", self.name)
+            return True
+        return False
+
+    def record_success(self) -> None:
+        if self._opened_at is not None:
+            logger.info("Circuit for '%s' closed after successful probe.", self.name)
+        self._failures = 0
+        self._opened_at = None
+
+    def record_failure(self) -> None:
+        self._failures += 1
+        if self._failures >= self.threshold:
+            self._opened_at = time.monotonic()
+            logger.warning(
+                "Circuit for '%s' opened after %d consecutive failures; "
+                "failing fast for %.0fs.",
+                self.name,
+                self._failures,
+                self.reset_seconds,
+            )
+
+
+_breakers: dict[str, _CircuitBreaker] = {}
+
+
+def _breaker_for(name: str) -> _CircuitBreaker:
+    if name not in _breakers:
+        _breakers[name] = _CircuitBreaker(
+            name,
+            settings.ai_circuit_breaker_threshold,
+            settings.ai_circuit_breaker_reset_seconds,
+        )
+    return _breakers[name]
+
+
+def reset_breakers() -> None:
+    """Clear all breaker state. Used by tests."""
+    _breakers.clear()
+
+
+# Bounds in-flight provider calls so a large document's chunk fan-out cannot
+# exhaust the thread pool or trip provider rate limits.
+_provider_semaphore = asyncio.Semaphore(settings.ai_max_concurrent_requests)
+
+
+async def _call_provider_with_retry(
+    provider: LLMProvider,
+    method: str,
+    *args,
+    **kwargs,
+):
+    """Call a provider method with up to 3 retries, exponential backoff,
+    a per-attempt timeout, and bounded concurrency."""
+
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=10),
+        retry=retry_if_exception_type(_TRANSIENT_EXCEPTIONS),
+        before_sleep=before_sleep_log(logger, logging.WARNING),
+        reraise=True,
+    )
+    async def _inner():
+        fn = getattr(provider, method)
+        async with _provider_semaphore:
+            return await asyncio.wait_for(
+                fn(*args, **kwargs),
+                timeout=settings.ai_request_timeout_seconds,
+            )
+
+    return await _inner()
+
+
+async def _call_guarded(
+    provider: LLMProvider,
+    method: str,
+    *args,
+    **kwargs,
+):
+    """_call_provider_with_retry wrapped in the provider's circuit breaker."""
+    breaker = _breaker_for(provider.name)
+    if not breaker.allow():
+        raise CircuitOpenError(
+            f"Circuit for provider '{provider.name}' is open; skipping call."
+        )
+    try:
+        result = await _call_provider_with_retry(provider, method, *args, **kwargs)
+    except Exception:
+        breaker.record_failure()
+        raise
+    breaker.record_success()
+    return result
+
+
 async def ai_generate(prompt: str, *, temperature: float = 0.2) -> tuple[str, str]:
     """Generate text using primary provider with automatic fallback.
 
@@ -239,14 +387,18 @@ async def ai_generate(prompt: str, *, temperature: float = 0.2) -> tuple[str, st
 
     if primary:
         try:
-            result = await primary.generate(prompt, temperature=temperature)
+            result = await _call_guarded(
+                primary, "generate", prompt, temperature=temperature,
+            )
             return result, primary.name
         except Exception as e:
-            logger.warning(f"Primary provider '{primary.name}' failed: {e}")
+            logger.warning(f"Primary provider '{primary.name}' failed after retries: {e}")
 
     if fallback:
         try:
-            result = await fallback.generate(prompt, temperature=temperature)
+            result = await _call_guarded(
+                fallback, "generate", prompt, temperature=temperature,
+            )
             logger.info(f"Fallback provider '{fallback.name}' succeeded.")
             return result, fallback.name
         except Exception as e:
@@ -266,13 +418,13 @@ async def ai_embed(text: str) -> list[float]:
 
     if primary:
         try:
-            return await primary.embed(text)
+            return await _call_guarded(primary, "embed", text)
         except Exception as e:
-            logger.warning(f"Primary embedding provider '{primary.name}' failed: {e}")
+            logger.warning(f"Primary embedding provider '{primary.name}' failed after retries: {e}")
 
     if fallback:
         try:
-            return await fallback.embed(text)
+            return await _call_guarded(fallback, "embed", text)
         except Exception as e:
             logger.error(f"Fallback embedding provider '{fallback.name}' also failed: {e}")
 

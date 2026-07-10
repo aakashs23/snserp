@@ -21,7 +21,7 @@ from app.schemas.invoices import InvoiceCreate, InvoiceResponse, InvoiceUpdate
 from app.services.activity_service import log_activity
 from app.services.notification_service import notify_admins
 from app.services.pdf_generator import generate_invoice_pdf
-from app.config.supabase import supabase
+from app.services.storage_service import storage_create_bucket, storage_signed_url, storage_upload
 
 router = APIRouter()
 
@@ -201,13 +201,14 @@ async def create_invoice(
         try:
             # Ensure bucket exists (ignore error if it does)
             try:
-                supabase.storage.create_bucket("invoice-pdfs", options={"public": False})
+                await storage_create_bucket("invoice-pdfs", options={"public": False})
             except Exception:
                 pass
-                
-            supabase.storage.from_("invoice-pdfs").upload(
-                file_path, 
-                pdf_bytes, 
+
+            await storage_upload(
+                "invoice-pdfs",
+                file_path,
+                pdf_bytes,
                 file_options={"content-type": "application/pdf", "upsert": "true"}
             )
             
@@ -290,9 +291,7 @@ async def get_invoice_pdf(
     
     try:
         # Create a signed URL valid for 1 hour (3600 seconds)
-        response = supabase.storage.from_("invoice-pdfs").create_signed_url(
-            invoice.pdf_storage_path, 3600
-        )
+        response = await storage_signed_url("invoice-pdfs", invoice.pdf_storage_path, 3600)
         if "signedURL" in response:
             return {"url": response["signedURL"]}
         raise HTTPException(status_code=500, detail="Could not generate signed URL")

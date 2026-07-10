@@ -34,6 +34,15 @@ class Settings(BaseSettings):
     # CORS
     cors_origins: str = "http://localhost:3000"
 
+    # Upload limits
+    max_upload_size_mb: int = 20
+
+    # Rate limits (requests per minute)
+    rate_limit_auth: str = "10/minute"
+    rate_limit_ai: str = "20/minute"
+    rate_limit_upload: str = "10/minute"
+    rate_limit_default: str = "100/minute"
+
     # AI / Ollama
     ollama_base_url: str = "http://localhost:11434"
     llm_model: str = "qwen3:8b"
@@ -46,6 +55,12 @@ class Settings(BaseSettings):
     gemini_model: str = "gemini-2.5-flash"
     xai_api_key: str = ""
     grok_model: str = "grok-3-mini"
+
+    # AI Resilience — tune per provider latency and rate limits
+    ai_request_timeout_seconds: float = 30.0
+    ai_max_concurrent_requests: int = 8
+    ai_circuit_breaker_threshold: int = 3
+    ai_circuit_breaker_reset_seconds: float = 30.0
 
     # ChromaDB
     chroma_db_path: str = str(PROJECT_ROOT / "backend" / "data" / "chromadb")

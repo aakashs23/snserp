@@ -56,6 +56,7 @@ async def list_customers(
     limit: int = Query(100, ge=1, le=500),
     search: Optional[str] = Query(None, description="Search by customer name"),
     db: AsyncSession = Depends(get_db),
+    _current_user: User = Depends(get_current_user),
 ) -> list[CustomerResponse]:
     """List customers with optional name search and pagination."""
     if search:
@@ -77,6 +78,7 @@ async def list_customers(
 async def get_customer(
     customer_id: UUID,
     db: AsyncSession = Depends(get_db),
+    _current_user: User = Depends(get_current_user),
 ) -> CustomerResponse:
     """Get a single customer by ID."""
     repo = BaseRepository(Customer, db)

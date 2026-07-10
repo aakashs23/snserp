@@ -14,9 +14,10 @@ class DocumentMetadataResponse(BaseModel):
     confidence_score: Optional[float] = None
 
 class DocumentUpdate(BaseModel):
-    original_name: Optional[str] = None
-    display_name: Optional[str] = None
-    category: Optional[str] = None
+    # Bounds mirror the column widths in models/documents.py.
+    original_name: Optional[str] = Field(None, min_length=1, max_length=255)
+    display_name: Optional[str] = Field(None, min_length=1, max_length=255)
+    category: Optional[str] = Field(None, max_length=50)
 
 class DocumentAIResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)

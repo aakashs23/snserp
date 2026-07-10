@@ -7,6 +7,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy import select, func
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -110,6 +111,7 @@ async def list_invoices(
     sort_by: Optional[str] = Query("date", description="Sort column (date, customer, amount, status)"),
     sort_order: Optional[str] = Query("desc", description="Sort order (asc, desc)"),
     db: AsyncSession = Depends(get_db),
+    _current_user: User = Depends(get_current_user),
 ) -> list[InvoiceResponse]:
     """List invoices with optional filters, search, sorting, and pagination. Eagerly loads customer."""
     from sqlalchemy import or_
@@ -157,6 +159,7 @@ async def list_invoices(
 async def get_invoice(
     invoice_id: UUID,
     db: AsyncSession = Depends(get_db),
+    _current_user: User = Depends(get_current_user),
 ) -> InvoiceResponse:
     """Get a single invoice by ID."""
     query = (
@@ -184,10 +187,18 @@ async def create_invoice(
     repo = BaseRepository(Invoice, db)
     data = body.model_dump()
     data["created_by"] = current_user.id
-    
+
     # 1. Save to DB first to get the ID
-    invoice = await repo.create(data)
-    
+    try:
+        invoice = await repo.create(data)
+    except IntegrityError:
+        # invoice_number is UNIQUE. Without this the violation escapes as a 500.
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Invoice number '{data['invoice_number']}' already exists.",
+        )
+
     # 2. Fetch Customer for PDF
     customer_res = await db.execute(select(Customer).where(Customer.id == invoice.customer_id))
     customer = customer_res.scalar_one_or_none()

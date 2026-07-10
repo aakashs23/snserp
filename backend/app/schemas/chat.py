@@ -1,10 +1,12 @@
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from typing import List, Optional
 from datetime import datetime
 from uuid import UUID
 
 class ChatRequest(BaseModel):
-    message: str
+    # Capped before the message is interpolated into an LLM prompt. 4000 matches
+    # the truncation width chat.py already applies to retrieved OCR context.
+    message: str = Field(..., min_length=1, max_length=4000)
     session_id: Optional[str] = None
 
 class Citation(BaseModel):

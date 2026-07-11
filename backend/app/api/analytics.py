@@ -9,6 +9,7 @@ from app.models.invoices import Invoice
 from app.models.customers import Customer
 from app.models.users import User
 from app.middleware.auth import get_current_user
+from app.middleware.rbac import RequireRole
 from app.schemas.analytics import (
     RevenueDashboardResponse, MonthlyRevenueItem, TopCustomerItem,
     DashboardStatsResponse, InvoiceStatusItem, DocumentUploadItem, RecentRevenueItem
@@ -23,7 +24,7 @@ router = APIRouter()
 @router.get("/revenue/export")
 async def export_revenue(
     format: str = Query("csv", description="Export format: csv, xlsx, or pdf"),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(RequireRole(["admin", "employee"])),
     db: AsyncSession = Depends(get_db)
 ):
     """Export revenue dashboard data."""
@@ -59,7 +60,7 @@ async def export_revenue(
 
 @router.get("/revenue", response_model=RevenueDashboardResponse)
 async def get_revenue_dashboard(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(RequireRole(["admin", "employee"])),
     db: AsyncSession = Depends(get_db)
 ):
     current_year = datetime.date.today().year

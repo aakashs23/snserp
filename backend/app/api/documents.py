@@ -3,6 +3,8 @@ import re
 import logging
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, BackgroundTasks, Query, Request
+from slowapi import Limiter
+from slowapi.util import get_remote_address
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc, func, and_
 from sqlalchemy.orm import selectinload
@@ -23,6 +25,11 @@ from app.services.storage_service import storage_remove, storage_signed_url, sto
 router = APIRouter()
 logger = logging.getLogger("snserp.documents")
 
+# Per-route limiter, mirroring auth.py and chat.py. Uploads are far more
+# expensive than a default request: they buffer the file, hit Supabase Storage,
+# and queue the OCR/embedding pipeline.
+_upload_limiter = Limiter(key_func=get_remote_address)
+
 # ── Filename sanitization ─────────────────────────────────────────────────────
 _UNSAFE_CHARS = re.compile(r'[^\w\s\-.]')
 _MULTI_DOTS = re.compile(r'\.{2,}')
@@ -38,6 +45,7 @@ def _sanitize_filename(name: str) -> str:
 
 
 @router.post("/upload", response_model=DocumentCombinedResponse)
+@_upload_limiter.limit(settings.rate_limit_upload)
 async def upload_document(
     request: Request,
     background_tasks: BackgroundTasks,

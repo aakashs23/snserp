@@ -10,6 +10,7 @@ alembic
 # Validation & Config
 pydantic
 pydantic-settings
+email-validator  # required at runtime by pydantic's EmailStr
 
 # Authentication
 python-jose[cryptography]

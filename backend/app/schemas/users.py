@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Optional
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 
 class RoleResponse(BaseModel):
@@ -31,9 +31,11 @@ class UserResponse(BaseModel):
     updated_at: datetime
 
 class UserCreate(BaseModel):
-    full_name: str
-    email: str
-    password: str
+    # Bounds mirror models/users.py column widths. UserResponse.email stays a
+    # plain str: it serialises rows already in the DB and must not fail on them.
+    full_name: str = Field(..., min_length=1, max_length=120)
+    email: EmailStr
+    password: str = Field(..., min_length=8, max_length=128)
     role_id: UUID
 
 class UserUpdate(BaseModel):

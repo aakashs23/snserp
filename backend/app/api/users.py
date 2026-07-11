@@ -1,3 +1,4 @@
+import logging
 import uuid
 from typing import List
 
@@ -15,6 +16,7 @@ from app.config.supabase import supabase
 from app.services.notification_service import notify_admins
 
 router = APIRouter()
+logger = logging.getLogger("snserp")
 
 @router.get("/roles", response_model=List[RoleResponse])
 async def list_roles(
@@ -56,7 +58,8 @@ async def create_user(
             "email_confirm": True
         })
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Failed to create user in Auth: {str(e)}")
+        logger.warning("Supabase Auth user creation failed: %s", e)
+        raise HTTPException(status_code=400, detail="Could not create user. The email may already be in use.")
         
     auth_user = auth_res.user
     if not auth_user:

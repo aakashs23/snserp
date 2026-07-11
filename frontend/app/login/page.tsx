@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
+import { TurnstileWidget } from '@/components/turnstile-widget'
 import Link from 'next/link'
 
 export default async function LoginPage({
@@ -44,6 +45,7 @@ export default async function LoginPage({
               </div>
               <Input id="password" name="password" type="password" required />
             </div>
+            <TurnstileWidget />
           </CardContent>
           <CardFooter className="flex flex-col space-y-4">
             <Button className="w-full" type="submit">Sign in</Button>

@@ -293,14 +293,22 @@ async def chat_query(
         else:
             try:
                 session_uuid = uuid.UUID(session_id)
-                hist_res = await db.execute(
-                    select(AIChatMessage)
-                    .where(AIChatMessage.session_id == session_uuid)
-                    .order_by(AIChatMessage.created_at)
-                )
-                history = list(hist_res.scalars().all())
             except ValueError:
                 raise HTTPException(status_code=400, detail="Invalid session_id")
+
+            # Object-level authorization: a session_id belonging to another user
+            # must not be readable (history leaks into the LLM prompt) or writable
+            # (messages would be injected into their session).
+            session = await db.get(AIChatSession, session_uuid)
+            if not session or session.user_id != current_user.id:
+                raise HTTPException(status_code=404, detail="Session not found")
+
+            hist_res = await db.execute(
+                select(AIChatMessage)
+                .where(AIChatMessage.session_id == session_uuid)
+                .order_by(AIChatMessage.created_at)
+            )
+            history = list(hist_res.scalars().all())
 
         # ── Rewrite query using conversation context ──
         standalone_query = await _rewrite_query(chat_request.message, history)
@@ -421,5 +429,5 @@ async def chat_query(
         logger.error(f"Chat API error: {e}", exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail=f"An error occurred while processing the chat query: {str(e)}",
+            detail="An error occurred while processing the chat query.",
         )

@@ -10,6 +10,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 from slowapi.util import get_remote_address
 from sqlalchemy import func, select
 
@@ -53,11 +54,23 @@ limiter = Limiter(key_func=get_remote_address, default_limits=[settings.rate_lim
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan: seed default roles and ensure storage buckets on startup."""
-    # Warn if running production with default JWT secret
-    if settings.app_env != "development" and settings.jwt_secret == "dev-secret-change-in-production":
-        logger.warning(
-            "⚠️  JWT_SECRET is still the default value! Set a strong secret for production."
-        )
+    # Fail closed outside development if critical secrets are missing.
+    if settings.app_env != "development":
+        missing = [
+            name for name, value in (
+                ("SUPABASE_URL", settings.supabase_url),
+                ("SUPABASE_SERVICE_KEY", settings.supabase_service_key),
+            ) if not value
+        ]
+        if missing:
+            raise RuntimeError(
+                f"Refusing to start in '{settings.app_env}': missing required secrets: "
+                + ", ".join(missing)
+            )
+        if settings.jwt_secret == "dev-secret-change-in-production":
+            logger.warning("JWT_SECRET is still the default value.")
+        if "localhost" in settings.database_url:
+            logger.warning("DATABASE_URL points at localhost outside development.")
 
     # Ensure Supabase storage buckets exist
     ensure_documents_bucket()
@@ -85,18 +98,45 @@ async def lifespan(app: FastAPI):
 
 
 
+# Expose interactive API docs only in development — they map the full API surface.
+_docs_enabled = settings.app_env == "development"
+
 app = FastAPI(
     title="Sri Naga Sai ERP",
     description="AI-Powered ERP & Intelligent Document Management System for Solar Companies",
     version="1.0.0",
-    docs_url="/docs",
-    redoc_url="/redoc",
+    docs_url="/docs" if _docs_enabled else None,
+    redoc_url="/redoc" if _docs_enabled else None,
+    openapi_url="/openapi.json" if _docs_enabled else None,
     lifespan=lifespan,
 )
 
 # ─── Attach rate limiter to app ───────────────────────────────────────────────
+async def _log_and_handle_rate_limit(request: Request, exc: RateLimitExceeded):
+    """Log throttled requests (unusual-traffic signal), then use slowapi's handler."""
+    client_ip = request.client.host if request.client else "unknown"
+    logger.warning(
+        "rate_limit_exceeded | ip=%s method=%s path=%s",
+        client_ip, request.method, request.url.path,
+    )
+    return _rate_limit_exceeded_handler(request, exc)
+
+
 app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_exception_handler(RateLimitExceeded, _log_and_handle_rate_limit)
+
+
+# ─── Security headers ─────────────────────────────────────────────────────────
+@app.middleware("http")
+async def add_security_headers(request: Request, call_next):
+    """Baseline hardening headers. HSTS is ignored by browsers over plain HTTP,
+    so it is safe to send in every environment; TLS termination is done upstream."""
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Strict-Transport-Security"] = "max-age=63072000; includeSubDomains"
+    return response
 
 # ─── Request logging middleware ───────────────────────────────────────────────
 app.add_middleware(RequestLoggingMiddleware)
@@ -105,6 +145,12 @@ app.add_middleware(RequestLoggingMiddleware)
 # Added after RequestLogging and before CORS, so it sits inside the CORS layer.
 install_compression_exclusions()
 app.add_middleware(GZipMiddleware, minimum_size=1000, compresslevel=6)
+
+# ─── Global rate limiting ─────────────────────────────────────────────────────
+# Without this middleware slowapi's default_limits never fire, leaving every
+# endpoint without an explicit @limiter.limit unthrottled. Added inside CORS so
+# 429 responses still carry CORS headers. Stricter per-route limits still win.
+app.add_middleware(SlowAPIMiddleware)
 
 # ─── CORS ─────────────────────────────────────────────────────────────────────
 app.add_middleware(

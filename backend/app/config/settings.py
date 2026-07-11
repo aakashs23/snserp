@@ -31,6 +31,9 @@ class Settings(BaseSettings):
     jwt_secret: str = "dev-secret-change-in-production"
     enable_registration: bool = True
 
+    # Cloudflare Turnstile (bot protection on auth forms) — secret stays backend-only
+    turnstile_secret_key: str = ""
+
     # CORS
     cors_origins: str = "http://localhost:3000"
 

@@ -128,7 +128,7 @@ async def get_revenue_dashboard(
 
 @router.get("/dashboard/stats", response_model=DashboardStatsResponse)
 async def get_dashboard_stats(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(RequireRole(["admin", "employee"])),
     db: AsyncSession = Depends(get_db)
 ):
     current_date = datetime.date.today()
@@ -234,7 +234,7 @@ async def get_dashboard_stats(
 
 @router.get("/dashboard/activity", response_model=list[ActivityLogResponse])
 async def get_dashboard_activity(
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(RequireRole(["admin"])),
     db: AsyncSession = Depends(get_db)
 ):
     from sqlalchemy import desc

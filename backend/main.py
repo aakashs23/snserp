@@ -136,6 +136,10 @@ async def add_security_headers(request: Request, call_next):
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     response.headers["Strict-Transport-Security"] = "max-age=63072000; includeSubDomains"
+    # This API only ever serves JSON — no HTML, scripts, or embeds. A locked-down
+    # CSP here is safe (the UI is a separate Next.js origin with its own policy).
+    response.headers["Content-Security-Policy"] = "default-src 'none'; frame-ancestors 'none'"
+    response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
     return response
 
 # ─── Request logging middleware ───────────────────────────────────────────────

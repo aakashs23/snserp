@@ -45,7 +45,11 @@ async def readiness():
         db_ms = (time.perf_counter() - start) * 1000
         checks["database"] = {"status": "ok", "latency_ms": round(db_ms, 1)}
     except Exception as e:
-        checks["database"] = {"status": "error", "detail": str(e)}
+        # Raw exception text can include the DSN (with credentials) for some
+        # connection-level driver errors. This endpoint is unauthenticated, so
+        # only a generic message goes to the client; full detail is logged.
+        logger.error("Readiness DB check failed: %s", e)
+        checks["database"] = {"status": "error", "detail": "Database connection failed."}
         overall = False
 
     # ── Storage check (Supabase) ──────────────────────────────────────────
@@ -55,7 +59,8 @@ async def readiness():
         storage_ms = (time.perf_counter() - start) * 1000
         checks["storage"] = {"status": "ok", "latency_ms": round(storage_ms, 1)}
     except Exception as e:
-        checks["storage"] = {"status": "error", "detail": str(e)}
+        logger.error("Readiness storage check failed: %s", e)
+        checks["storage"] = {"status": "error", "detail": "Storage connection failed."}
         overall = False
 
     # ── AI provider check ────────────────────────────────────────────────
@@ -83,9 +88,11 @@ async def readiness():
             checks["ai_provider"] = {"status": "error", "detail": "No primary provider configured"}
             overall = False
     except Exception as e:
-        checks["ai_provider"] = {"status": "error", "detail": str(e)}
+        # Some providers (e.g. Gemini's REST transport) embed the API key as a
+        # query param; an SDK-level HTTP error could echo that URL in str(e).
+        logger.error("Readiness AI provider check failed: %s", e)
         # AI being down is degraded, not a full failure
-        checks["ai_provider"]["status"] = "degraded"
+        checks["ai_provider"] = {"status": "degraded", "detail": "AI provider check failed."}
 
     status_code = 200 if overall else 503
     from fastapi.responses import JSONResponse

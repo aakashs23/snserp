@@ -125,15 +125,20 @@ export default function DashboardPage() {
           Authorization: `Bearer ${accessToken}`,
         }
 
+        // Activity logs are admin-only server-side; only admins fetch them so
+        // other roles don't hit a 403'd endpoint or render an empty widget.
+        const isAdmin = roleName === "admin"
         const [statsRes, activityRes] = await Promise.all([
           fetch(`${API_PREFIX}/analytics/dashboard/stats`, {
             headers,
             cache: "no-store",
           }),
-          fetch(`${API_PREFIX}/analytics/dashboard/activity`, {
-            headers,
-            cache: "no-store",
-          }),
+          isAdmin
+            ? fetch(`${API_PREFIX}/analytics/dashboard/activity`, {
+                headers,
+                cache: "no-store",
+              })
+            : Promise.resolve(null),
         ])
 
         if (!isMounted) {
@@ -144,7 +149,7 @@ export default function DashboardPage() {
           setStats(await statsRes.json())
         }
 
-        if (activityRes.ok) {
+        if (activityRes && activityRes.ok) {
           setActivities(await activityRes.json())
         }
       } catch (error) {
@@ -159,7 +164,7 @@ export default function DashboardPage() {
     return () => {
       isMounted = false
     }
-  }, [authLoading])
+  }, [authLoading, roleName])
 
   const statCards = [
     { title: "Monthly Revenue", value: stats ? `₹${stats.monthly_revenue.toLocaleString()}` : "0", description: "Current month", icon: IndianRupee },
@@ -342,8 +347,9 @@ export default function DashboardPage() {
           </div>
         )}
 
-        {/* Activity Logs */}
-        <div className={`space-y-4 ${roleName !== "viewer" ? "lg:col-span-2" : "lg:col-span-3"}`}>
+        {/* Activity Logs — admin-only (audit trail is restricted server-side) */}
+        {roleName === "admin" && (
+        <div className="space-y-4 lg:col-span-2">
           <div className="flex items-center justify-between">
             <h2 className="text-xl font-semibold font-[family-name:var(--font-heading)] flex items-center gap-2">
               <Activity className="h-5 w-5 text-primary" />
@@ -355,7 +361,7 @@ export default function DashboardPage() {
               </Button>
             </Link>
           </div>
-          
+
           <Card>
             <CardContent className="p-0">
               <div className="divide-y">
@@ -399,6 +405,7 @@ export default function DashboardPage() {
             </CardContent>
           </Card>
         </div>
+        )}
       </div>
     </div>
   )

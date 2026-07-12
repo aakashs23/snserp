@@ -7,6 +7,7 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib import colors
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+from xml.sax.saxutils import escape as _xml_escape
 
 def format_currency(amount: float | Decimal) -> str:
     """Format amount using Indian numbering system with 2 decimals."""
@@ -108,21 +109,24 @@ def generate_invoice_pdf(invoice, customer) -> bytes:
         amount_words = num2words(float(net)).replace(",", "").title()
         
     # Table 1: Header + Info + Items
-    customer_info = f"<b>M/s. {customer.customer_name}</b><br/>"
+    # User-controlled fields are XML-escaped before being embedded in reportlab
+    # Paragraph markup — otherwise characters like < & or tags such as <font>/<img>
+    # would be parsed as markup (PDF injection / parser DoS).
+    customer_info = f"<b>M/s. {_xml_escape(customer.customer_name)}</b><br/>"
     if customer.address:
-        customer_info += f"{customer.address.replace(chr(10), '<br/>')}<br/>"
-    customer_info += f"GST ID: {customer.gst_number or 'N/A'}"
-    
+        customer_info += f"{_xml_escape(customer.address).replace(chr(10), '<br/>')}<br/>"
+    customer_info += f"GST ID: {_xml_escape(customer.gst_number) if customer.gst_number else 'N/A'}"
+
     meta_info = f"Date: {inv_date_str}<br/>"
-    meta_info += f"Mode of Payment: {payment_mode}<br/>"
-    meta_info += f"Invoice No: {invoice.invoice_number}<br/>"
+    meta_info += f"Mode of Payment: {_xml_escape(payment_mode)}<br/>"
+    meta_info += f"Invoice No: {_xml_escape(invoice.invoice_number)}<br/>"
     meta_info += f"Month of Supply: {month_supply_str}"
     
     data = [
         ["INVOICE", "", "", "", ""],
         [Paragraph(customer_info, normal_style), "", "", Paragraph(meta_info, normal_style), ""],
         ["S. NO", "Description", "Per Unit", "Quantity Units", "Amount"],
-        ["1", Paragraph(invoice.description or "Solar Power Allotted", normal_style), 
+        ["1", Paragraph(_xml_escape(invoice.description) if invoice.description else "Solar Power Allotted", normal_style),
          format_currency(invoice.rate), format_units(invoice.units), format_currency(gross)],
         ["", "Round/off", "", "", ("+" if round_off > 0 else "") + format_currency(round_off) if round_off else ""],
         ["", "Total", "", "", format_currency(total)],

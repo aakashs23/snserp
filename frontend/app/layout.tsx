@@ -17,6 +17,11 @@ const playfair = Playfair_Display({
   display: "swap",
 });
 
+// Nonce-based CSP (see utils/supabase/middleware.ts) requires per-request
+// rendering so Next can stamp the request's nonce onto its inline scripts.
+// This is an internal, fully auth-gated app, so losing static optimization is fine.
+export const dynamic = "force-dynamic";
+
 export const metadata: Metadata = {
   title: "Sri Naga Sai ERP",
   description:

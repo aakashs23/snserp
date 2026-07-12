@@ -38,7 +38,7 @@ async def export_invoices(
     sort_by: Optional[str] = Query("date", description="Sort column (date, customer, amount, status)"),
     sort_order: Optional[str] = Query("desc", description="Sort order (asc, desc)"),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(RequireRole(["admin", "employee", "accountant"])),
 ):
     """Export invoices data."""
     from app.services.export_service import generate_export_response
@@ -111,7 +111,7 @@ async def list_invoices(
     sort_by: Optional[str] = Query("date", description="Sort column (date, customer, amount, status)"),
     sort_order: Optional[str] = Query("desc", description="Sort order (asc, desc)"),
     db: AsyncSession = Depends(get_db),
-    _current_user: User = Depends(get_current_user),
+    _current_user: User = Depends(RequireRole(["admin", "employee", "accountant"])),
 ) -> list[InvoiceResponse]:
     """List invoices with optional filters, search, sorting, and pagination. Eagerly loads customer."""
     from sqlalchemy import or_
@@ -159,7 +159,7 @@ async def list_invoices(
 async def get_invoice(
     invoice_id: UUID,
     db: AsyncSession = Depends(get_db),
-    _current_user: User = Depends(get_current_user),
+    _current_user: User = Depends(RequireRole(["admin", "employee", "accountant"])),
 ) -> InvoiceResponse:
     """Get a single invoice by ID."""
     query = (
@@ -289,7 +289,7 @@ async def delete_invoice(
 async def get_invoice_pdf(
     invoice_id: UUID,
     db: AsyncSession = Depends(get_db),
-    _current_user: User = Depends(get_current_user),
+    _current_user: User = Depends(RequireRole(["admin", "employee", "accountant"])),
 ) -> dict:
     """Get a signed URL for the invoice PDF."""
     repo = BaseRepository(Invoice, db)
@@ -309,6 +309,7 @@ async def get_invoice_pdf(
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+import io
 import pandas as pd
 import math
 from fastapi import File, UploadFile
@@ -319,12 +320,19 @@ async def parse_excel(
     _current_user: User = Depends(RequireRole(["admin", "employee"])),
 ) -> dict:
     """Parse an uploaded Excel file for invoice generation with flexible 2D template parsing."""
-    if not file.filename.endswith(".xlsx"):
+    if not (file.filename or "").lower().endswith(".xlsx"):
         raise HTTPException(status_code=400, detail="This file is not a valid Excel document.")
-    
+
+    # Bound the payload before handing it to pandas: an unbounded read is a memory
+    # DoS vector (pandas loads the whole sheet in-memory).
+    from app.config.settings import settings as _settings
+    contents = await file.read()
+    if len(contents) > _settings.max_upload_size_mb * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="File too large.")
+
     try:
         # Read without headers to parse free-form grids
-        df = pd.read_excel(file.file, header=None)
+        df = pd.read_excel(io.BytesIO(contents), header=None)
     except Exception:
         raise HTTPException(status_code=400, detail="Could not read the Excel file. It may be corrupted or unsupported.")
     

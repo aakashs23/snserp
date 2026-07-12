@@ -1,5 +1,6 @@
+import logging
 from typing import Optional
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
@@ -10,8 +11,17 @@ from app.auth.supabase_jwt import validate_supabase_jwt
 from app.models.users import User
 
 security = HTTPBearer()
+logger = logging.getLogger("snserp.auth")
+
+
+def _log_auth_failure(request: Request, reason: str) -> None:
+    """Record a rejected authentication attempt for intrusion detection."""
+    client_ip = request.client.host if request.client else "unknown"
+    logger.warning("auth_failure | ip=%s path=%s reason=%s", client_ip, request.url.path, reason)
+
 
 async def get_current_user(
+    request: Request,
     credentials: HTTPAuthorizationCredentials = Depends(security),
     db: AsyncSession = Depends(get_db)
 ) -> User:
@@ -25,6 +35,7 @@ async def get_current_user(
     try:
         payload = validate_supabase_jwt(token)
     except ValueError as e:
+        _log_auth_failure(request, "invalid_token")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=str(e),
@@ -34,6 +45,7 @@ async def get_current_user(
     # Supabase user ID is returned as the 'sub' field
     user_id_str = payload.get("sub")
     if not user_id_str:
+        _log_auth_failure(request, "missing_sub")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Token missing 'sub' claim",
@@ -45,12 +57,14 @@ async def get_current_user(
     user = result.scalar_one_or_none()
 
     if user is None:
+        _log_auth_failure(request, "user_not_in_db")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="User not found in local database",
         )
-    
+
     if not user.is_active:
+        _log_auth_failure(request, "inactive_user")
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="User is inactive",

@@ -28,7 +28,7 @@ def add_months(sourcedate, months):
 @router.get("/dashboard")
 async def get_loans_dashboard(
     db: AsyncSession = Depends(get_db),
-    _current_user: User = Depends(get_current_user)
+    _current_user: User = Depends(RequireRole(["admin", "employee"]))
 ) -> dict:
     """Get high-level aggregated metrics for loans."""
     query = select(Loan).where(Loan.status == "active")
@@ -98,7 +98,7 @@ async def get_loans_dashboard(
 async def export_loans(
     format: str = Query("csv", description="Export format: csv, xlsx, or pdf"),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(RequireRole(["admin", "employee"])),
 ):
     """Export loans data."""
     from app.services.export_service import generate_export_response
@@ -128,7 +128,7 @@ async def list_loans(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=500),
     db: AsyncSession = Depends(get_db),
-    _current_user: User = Depends(get_current_user),
+    _current_user: User = Depends(RequireRole(["admin", "employee"])),
 ) -> list[LoanResponse]:
     """List all loans."""
     query = select(Loan).order_by(Loan.created_at.desc()).offset(skip).limit(limit)
@@ -161,7 +161,7 @@ async def create_loan(
 async def get_loan(
     loan_id: UUID,
     db: AsyncSession = Depends(get_db),
-    _current_user: User = Depends(get_current_user),
+    _current_user: User = Depends(RequireRole(["admin", "employee"])),
 ) -> LoanResponse:
     repo = BaseRepository(Loan, db)
     loan = await repo.get(loan_id)
@@ -226,13 +226,13 @@ async def delete_loan(
 async def get_loan_amortization(
     loan_id: UUID,
     db: AsyncSession = Depends(get_db),
-    _current_user: User = Depends(get_current_user)
+    _current_user: User = Depends(RequireRole(["admin", "employee"]))
 ) -> dict:
     repo = BaseRepository(Loan, db)
     loan = await repo.get(loan_id)
     if not loan:
         raise HTTPException(status_code=404, detail="Loan not found")
-        
+
     p = loan.principal_amount
     r = loan.interest_rate_annual / 12 / 100
     n = loan.tenure_months

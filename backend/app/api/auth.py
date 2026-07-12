@@ -1,6 +1,10 @@
 """Auth API router — current user profile."""
 
-from fastapi import APIRouter, Depends, Request
+import logging
+
+import httpx
+from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel
 
 from app.middleware.auth import get_current_user
 from app.models.users import User
@@ -8,6 +12,43 @@ from app.schemas.users import UserResponse
 from app.config.settings import settings
 
 router = APIRouter()
+logger = logging.getLogger("snserp.auth")
+
+TURNSTILE_VERIFY_URL = "https://challenges.cloudflare.com/turnstile/v0/siteverify"
+
+
+class TurnstileVerifyRequest(BaseModel):
+    token: str
+
+
+@router.post("/verify-turnstile")
+async def verify_turnstile(payload: TurnstileVerifyRequest):
+    """Verify a Cloudflare Turnstile token server-side against the official siteverify
+    endpoint. The secret never leaves the backend."""
+    if not settings.turnstile_secret_key:
+        # Fail closed: an unconfigured secret must not silently allow requests through.
+        logger.error("TURNSTILE_SECRET_KEY is not configured")
+        raise HTTPException(status_code=500, detail="CAPTCHA verification is not configured.")
+
+    if not payload.token:
+        raise HTTPException(status_code=400, detail="Missing CAPTCHA token.")
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(
+                TURNSTILE_VERIFY_URL,
+                data={"secret": settings.turnstile_secret_key, "response": payload.token},
+            )
+        result = resp.json()
+    except Exception as e:
+        logger.warning("Turnstile siteverify request failed: %s", e)
+        raise HTTPException(status_code=502, detail="Could not reach CAPTCHA verification service.")
+
+    if not result.get("success"):
+        logger.warning("Turnstile verification rejected: %s", result.get("error-codes"))
+        raise HTTPException(status_code=403, detail="CAPTCHA verification failed.")
+
+    return {"success": True}
 
 
 @router.get("/me", response_model=UserResponse)

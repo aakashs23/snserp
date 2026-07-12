@@ -67,6 +67,7 @@ class DocumentCombinedResponse(BaseModel):
     # Document state
     status: str = "approved"
     shared_with_ids: List[UUID] = Field(default_factory=list)
+    deleted_at: Optional[datetime] = None
     
     # Metadata fields
     title: Optional[str] = None
@@ -112,6 +113,7 @@ class DocumentCombinedResponse(BaseModel):
             confidence_score=doc.metadata_info.confidence_score if doc.metadata_info else None,
             status=getattr(doc, "status", "approved"),
             shared_with_ids=[u.id for u in getattr(doc, "shared_with", [])],
+            deleted_at=doc.deleted_at,
         )
 
 class ShareRequest(BaseModel):

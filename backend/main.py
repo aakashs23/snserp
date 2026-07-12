@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
@@ -165,6 +165,24 @@ app.add_middleware(
     allow_headers=["*"],
     expose_headers=["X-Request-ID"],
 )
+
+# ─── HTTPS redirect ────────────────────────────────────────────────────────────
+# Added last so it becomes the outermost middleware layer, running before CORS,
+# rate limiting, and everything else — a plain-HTTP request never reaches them.
+# TLS terminates upstream (see add_security_headers above), so request.url.scheme
+# is always 'http' internally even for a visitor on https; x-forwarded-proto is
+# what the edge actually saw. A proxy chain can send a comma-separated list
+# ("https, http"); the client-facing hop is always the first entry.
+@app.middleware("http")
+async def redirect_http_to_https(request: Request, call_next):
+    if settings.app_env != "development":
+        forwarded_proto = request.headers.get("x-forwarded-proto", "").split(",")[0].strip()
+        if forwarded_proto == "http":
+            https_url = request.url.replace(scheme="https")
+            # 308: preserves the method, so a POST isn't downgraded to GET on retry.
+            # replace() carries the full path and query string over unchanged.
+            return RedirectResponse(url=str(https_url), status_code=308)
+    return await call_next(request)
 
 # ─── Global exception handlers ───────────────────────────────────────────────
 @app.exception_handler(Exception)
